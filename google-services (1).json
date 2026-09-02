@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "516578278980",
+    "project_id": "nexwork-ab50e",
+    "storage_bucket": "nexwork-ab50e.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:516578278980:android:0b5545e5a314e4b97e8611",
+        "android_client_info": {
+          "package_name": "com.nexwork.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyC0JiOzp4yRkaE5n33eE7W9LGmriwj9AOM"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
