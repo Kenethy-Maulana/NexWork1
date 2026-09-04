@@ -9,27 +9,19 @@
       "resizeMode": "contain",
       "backgroundColor": "#ffffff"
     },
-    "assetBundlePatterns": [
-      "**/*"
-    ],
+    "assetBundlePatterns": ["**/*"],
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.kenethy.nexwork"
     },
     "android": {
       "package": "com.kenethy.nexwork",
-      "versionCode": 1,
-      "adaptiveIcon": {
-        "backgroundColor": "#ffffff"
-      }
+      "versionCode": 1
     },
-    "web": {
-      "bundler": "metro",
-      "output": "single"
+    "ios": {
+      "bundleIdentifier": "com.kenethy.nexwork"
     },
-    "plugins": [
-      "expo-router"
-    ],
+    "plugins": ["expo-router"],
     "scheme": "nexwork",
     "extra": {
       "router": {},
