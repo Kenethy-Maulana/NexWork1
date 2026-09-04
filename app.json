@@ -9,7 +9,9 @@
       "resizeMode": "contain",
       "backgroundColor": "#ffffff"
     },
-    "assetBundlePatterns": ["**/*"],
+    "assetBundlePatterns": [
+      "**/*"
+    ],
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.kenethy.nexwork"
@@ -25,7 +27,16 @@
       "bundler": "metro",
       "output": "single"
     },
-    "plugins": ["expo-router"],
-    "scheme": "nexwork"
+    "plugins": [
+      "expo-router"
+    ],
+    "scheme": "nexwork",
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "67b85aea-ef1b-4080-a376-09cbea7a9fc2"
+      }
+    },
+    "owner": "kenethymaulanas-team"
   }
 }
