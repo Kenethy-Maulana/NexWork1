@@ -42,10 +42,10 @@ export const NotificationService = {
     referenceId?: string,
     referenceType?: string
   ): Promise<boolean> {
-    console.log('📤 A criar notificação para:', userId, type);
+    console.log(`📤 A criar notificação para: ${userId} | Tipo: ${type}`);
     
     try {
-      // Usar a função SQL segura (SECURITY DEFINER) que ignora o RLS
+      // Usa a função SQL (RPC) com SECURITY DEFINER para ignorar o RLS e inserir para qualquer user_id
       const { data, error } = await supabase.rpc('create_notification', {
         p_user_id: userId,
         p_type: type,
@@ -56,14 +56,20 @@ export const NotificationService = {
       });
 
       if (error) {
-        console.error('❌ Erro ao criar notificação:', error);
+        // Log detalhado para facilitar o debug caso o erro 400 volte a acontecer
+        console.error('❌ Erro Supabase ao criar notificação:', {
+          message: error.message,
+          details: error.details,
+          hint: error.hint,
+          code: error.code
+        });
         return false;
       }
 
       console.log('✅ Notificação criada com sucesso! ID:', data);
       return true;
     } catch (err) {
-      console.error('❌ Exceção ao criar notificação:', err);
+      console.error('❌ Exceção inesperada ao criar notificação:', err);
       return false;
     }
   },
@@ -142,7 +148,7 @@ export const NotificationService = {
       return () => {};
     }
 
-    console.log(`👂 A ouvir notificações para o user_id: ${userId}`);
+    console.log(`👂 A ouvir notificações em tempo real para: ${userId}`);
 
     const channel = supabase
       .channel(channelName)
@@ -164,12 +170,13 @@ export const NotificationService = {
       .subscribe((status, err) => {
         console.log(`📡 Status da subscrição '${channelName}':`, status);
         if (err) {
-          console.error('❌ Erro na subscrição:', err);
+          console.error('❌ Erro na subscrição realtime:', err);
         }
       });
 
     activeChannels.set(channelName, channel);
 
+    // Função de cleanup para evitar vazamento de memória
     return () => {
       console.log(`🧹 A remover canal de notificações: ${channelName}`);
       supabase.removeChannel(channel);
@@ -185,8 +192,8 @@ export const NotificationService = {
       'new_proposal',
       'Notificação de Teste 🧪',
       'Esta é uma notificação de teste para verificar se o sistema está a funcionar.',
-      undefined,  // <-- CORRIGIDO: undefined em vez de null
-      undefined   // <-- CORRIGIDO: undefined em vez de null
+      undefined,
+      undefined
     );
   },
 };

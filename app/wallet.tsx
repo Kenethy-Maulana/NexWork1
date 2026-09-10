@@ -1,13 +1,110 @@
 // app/wallet.tsx
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, SafeAreaView, ScrollView, TouchableOpacity, Alert } from 'react-native';
+import { View, Text, StyleSheet, SafeAreaView, ScrollView, TouchableOpacity, Alert, Modal, TextInput, ActivityIndicator } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../styles/theme';
-import { Button } from '../components/ui/Button';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
 import { WalletService, PaySuiteService } from '../lib/paysuite';
+
+// ==========================================
+// 🎨 COMPONENTE MODAL ORGANIZADO E SEGURO
+// ==========================================
+function ActionModal({ visible, title, onClose, onSubmit, fields }: any) {
+  const { colors } = useTheme();
+  const [values, setValues] = useState<Record<string, string>>({});
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (visible) {
+      setValues({});
+      setLoading(false);
+    }
+  }, [visible]);
+
+  const handleSubmit = async () => {
+    // 1. Validação rigorosa dos campos
+    for (const field of fields) {
+      if (!values[field.key] || values[field.key].trim() === '') {
+        Alert.alert('Atenção', `O campo "${field.label}" é obrigatório.`);
+        return;
+      }
+    }
+    
+    setLoading(true);
+    try {
+      // 2. Executa a operação assíncrona. 
+      // Se falhar, o catch abaixo intercepta. Se tiver sucesso, o modal fecha.
+      await onSubmit(values);
+      onClose(); 
+    } catch (error: any) {
+      Alert.alert('Erro', error.message || 'Ocorreu um erro inesperado.');
+    } finally {
+      // 3. Garante que o estado de loading é sempre removido, mesmo em caso de erro
+      setLoading(false);
+    }
+  };
+
+  return (
+    <Modal visible={visible} transparent animationType="fade">
+      <View style={styles.modalOverlay}>
+        <View style={[styles.modalContent, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+          {/* Cabeçalho do Modal */}
+          <View style={[styles.modalHeader, { borderBottomColor: colors.border }]}>
+            <Text style={[styles.modalTitle, { color: colors.text.primary }]}>{title}</Text>
+            <TouchableOpacity onPress={onClose} style={styles.closeButton} activeOpacity={0.7}>
+              <Ionicons name="close" size={24} color={colors.text.secondary} />
+            </TouchableOpacity>
+          </View>
+          
+          {/* Corpo com Scroll (evita que o teclado esconda os campos) */}
+          <ScrollView style={styles.modalBody} showsVerticalScrollIndicator={false}>
+            {fields.map((field: any, index: number) => (
+              <View key={index} style={styles.inputGroup}>
+                <Text style={[styles.inputLabel, { color: colors.text.secondary }]}>{field.label}</Text>
+                <TextInput
+                  style={[styles.modalInput, { backgroundColor: colors.background, borderColor: colors.border, color: colors.text.primary }]}
+                  placeholder={field.placeholder}
+                  placeholderTextColor={colors.text.light}
+                  value={values[field.key] || ''}
+                  onChangeText={(text) => setValues({ ...values, [field.key]: text })}
+                  keyboardType={field.keyboardType || 'default'}
+                  autoCapitalize="none"
+                />
+              </View>
+            ))}
+          </ScrollView>
+
+          {/* Rodapé Fixo com Botões Nativos */}
+          <View style={[styles.modalFooter, { borderTopColor: colors.border }]}>
+            <TouchableOpacity 
+              style={[styles.modalButton, { backgroundColor: colors.surface, borderColor: colors.border, borderWidth: 1 }]} 
+              onPress={onClose} 
+              disabled={loading}
+              activeOpacity={0.7}
+            >
+              <Text style={{ color: colors.text.primary, fontWeight: '600' }}>Cancelar</Text>
+            </TouchableOpacity>
+            
+            <TouchableOpacity 
+              style={[styles.modalButton, { backgroundColor: colors.primary, opacity: loading ? 0.7 : 1 }]} 
+              onPress={handleSubmit} 
+              disabled={loading}
+              activeOpacity={0.7}
+            >
+              {loading ? (
+                <ActivityIndicator color="#FFFFFF" size="small" />
+              ) : (
+                <Text style={{ color: '#FFFFFF', fontWeight: '600' }}>Confirmar</Text>
+              )}
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+}
 
 export default function WalletScreen() {
   const router = useRouter();
@@ -19,6 +116,10 @@ export default function WalletScreen() {
   const [totalSpent, setTotalSpent] = useState(0);
   const [transactions, setTransactions] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [showWithdrawModal, setShowWithdrawModal] = useState(false);
+  const [showTransferModal, setShowTransferModal] = useState(false);
 
   useEffect(() => { fetchWalletData(); }, []);
 
@@ -33,7 +134,7 @@ export default function WalletScreen() {
         setTotalSpent(wallet.total_spent);
       }
       const txs = await WalletService.getTransactions(user.id);
-      setTransactions(txs);
+      setTransactions(txs || []);
     } catch (err) {
       console.error('Erro ao carregar carteira:', err);
     } finally {
@@ -65,71 +166,92 @@ export default function WalletScreen() {
     }
   };
 
-  const handleAddFunds = async () => {
-    const method = window.prompt('Escolha o método:\n1. M-Pesa\n2. e-Mola\n3. mKesh\n4. Transferência Bancária\n(Digite 1, 2, 3 ou 4)');
-    if (!method || !['1', '2', '3', '4'].includes(method)) return;
-    const methodNames: any = { '1': 'M-Pesa', '2': 'e-Mola', '3': 'mKesh', '4': 'Banco' };
-    const phoneOrAccount = window.prompt(`Insira o número de ${methodNames[method]} ou conta:`);
-    if (!phoneOrAccount) return;
-    const amountStr = window.prompt(`Quanto deseja carregar via ${methodNames[method]}? (Ex: 5000)`);
-    if (!amountStr) return;
-    const amount = parseFloat(amountStr.replace(',', '.'));
-    if (isNaN(amount) || amount <= 0) { Alert.alert('Erro', 'Insira um valor válido.'); return; }
-
-    const result = await PaySuiteService.initiatePayment({ amount, currency: 'MZN', method: method === '1' ? 'mpesa' : method === '2' ? 'emola' : method === '3' ? 'mkesh' : 'bank_transfer', phoneNumber: phoneOrAccount, description: `Carregamento via ${methodNames[method]}`, referenceId: `ADD_${Date.now()}` });
-    if (result.success) {
-      await WalletService.creditWallet(user!.id, amount, `Depósito via ${methodNames[method]}`);
-      Alert.alert('Sucesso!', 'Fundos adicionados com sucesso!');
-      fetchWalletData();
-    } else {
-      Alert.alert('Erro', result.message);
+  // ✅ 1. ADICIONAR FUNDOS (Lógica Async Limpa)
+  const handleAddFundsSubmit = async (values: any) => {
+    if (!user?.id) throw new Error('Utilizador não autenticado.');
+    
+    const methodMap: any = { '1': 'M-Pesa', '2': 'e-Mola', '3': 'mKesh', '4': 'Banco' };
+    const methodKey = values.method.trim();
+    
+    if (!methodMap[methodKey]) {
+      throw new Error('Método inválido. Digite 1 (M-Pesa), 2 (e-Mola), 3 (mKesh) ou 4 (Banco).');
     }
+    
+    const methodName = methodMap[methodKey];
+    const amount = parseFloat(values.amount.replace(',', '.'));
+
+    if (isNaN(amount) || amount <= 0) throw new Error('Insira um valor válido maior que zero.');
+
+    // Chama o serviço de pagamento
+    const result = await PaySuiteService.initiatePayment({ 
+      amount, currency: 'MZN', 
+      method: methodKey === '1' ? 'mpesa' : methodKey === '2' ? 'emola' : methodKey === '3' ? 'mkesh' : 'bank_transfer', 
+      phoneNumber: values.phoneOrAccount, 
+      description: `Carregamento via ${methodName}`, 
+      referenceId: `ADD_${Date.now()}` 
+    });
+    
+    if (!result.success) {
+      throw new Error(result.message || 'Falha ao processar o pagamento.');
+    }
+
+    // Se chegou aqui, o pagamento foi bem-sucedido
+    await WalletService.creditWallet(user.id, amount, `Depósito via ${methodName}`);
+    Alert.alert('Sucesso!', 'Fundos adicionados com sucesso!');
+    fetchWalletData();
   };
 
-  const handleWithdraw = async () => {
-    const amountStr = window.prompt('Qual o valor que deseja levantar? (Ex: 2000)');
-    if (!amountStr) return;
-    const amount = parseFloat(amountStr.replace(',', '.'));
-    if (isNaN(amount) || amount <= 0) { Alert.alert('Erro', 'Insira um valor válido.'); return; }
-    if (amount > balance) { Alert.alert('Erro', 'Saldo insuficiente.'); return; }
-    const destination = window.prompt('Insira o número M-Pesa, e-Mola ou Conta Bancária de destino:');
-    if (!destination) return;
-    if (!window.confirm(`Confirmar levantamento de ${formatCurrency(amount)} para ${destination}?`)) return;
+  // ✅ 2. LEVANTAR FUNDOS (Lógica Async Limpa)
+  const handleWithdrawSubmit = async (values: any) => {
+    if (!user?.id) throw new Error('Utilizador não autenticado.');
+    
+    const amount = parseFloat(values.amount.replace(',', '.'));
+    if (isNaN(amount) || amount <= 0) throw new Error('Insira um valor válido maior que zero.');
+    if (amount > balance) throw new Error(`Saldo insuficiente. O seu saldo atual é ${formatCurrency(balance)}.`);
 
-    const result = await PaySuiteService.initiatePayment({ amount, currency: 'MZN', method: 'mpesa', phoneNumber: destination, description: 'Levantamento de fundos', referenceId: `WTH_${Date.now()}` });
-    if (result.success) {
-      const success = await WalletService.debitWallet(user!.id, amount, `Levantamento para ${destination}`);
-      if (success) { Alert.alert('Sucesso!', 'Pedido de levantamento enviado!'); fetchWalletData(); }
-      else { Alert.alert('Erro', 'Falha ao debitar saldo.'); }
-    } else {
-      Alert.alert('Erro', result.message);
+    const result = await PaySuiteService.initiatePayment({ 
+      amount, currency: 'MZN', method: 'mpesa', phoneNumber: values.destination, 
+      description: 'Levantamento de fundos', referenceId: `WTH_${Date.now()}` 
+    });
+    
+    if (!result.success) {
+      throw new Error(result.message || 'Falha ao iniciar o levantamento.');
     }
+
+    const success = await WalletService.debitWallet(user.id, amount, `Levantamento para ${values.destination}`);
+    if (!success) { 
+      throw new Error('Falha ao debitar o saldo da carteira.'); 
+    }
+    
+    Alert.alert('Sucesso!', 'Pedido de levantamento enviado com sucesso!'); 
+    fetchWalletData(); 
   };
 
-  const handleTransfer = async () => {
-    const amountStr = window.prompt('Qual o valor da transferência? (Ex: 1000)');
-    if (!amountStr) return;
-    const amount = parseFloat(amountStr.replace(',', '.'));
-    if (isNaN(amount) || amount <= 0) { Alert.alert('Erro', 'Insira um valor válido.'); return; }
-    if (amount > balance) { Alert.alert('Erro', 'Saldo insuficiente.'); return; }
-    const targetId = window.prompt('Insira o ID do utilizador destinatário:');
-    if (!targetId) return;
-    if (!window.confirm(`Confirmar transferência de ${formatCurrency(amount)} para o utilizador ${targetId}?`)) return;
+  // ✅ 3. TRANSFERIR FUNDOS (Lógica Async Limpa)
+  const handleTransferSubmit = async (values: any) => {
+    if (!user?.id) throw new Error('Utilizador não autenticado.');
+    
+    const amount = parseFloat(values.amount.replace(',', '.'));
+    if (isNaN(amount) || amount <= 0) throw new Error('Insira um valor válido maior que zero.');
+    if (amount > balance) throw new Error(`Saldo insuficiente. O seu saldo atual é ${formatCurrency(balance)}.`);
 
-    const success = await WalletService.debitWallet(user!.id, amount, `Transferência para ${targetId}`);
-    if (success) {
-      await WalletService.creditWallet(targetId, amount, 'Recebimento de transferência');
-      Alert.alert('Sucesso!', 'Transferência realizada!');
-      fetchWalletData();
-    } else {
-      Alert.alert('Erro', 'Falha na transferência.');
+    const success = await WalletService.debitWallet(user.id, amount, `Transferência para ${values.targetId}`);
+    if (!success) {
+      throw new Error('Falha ao debitar o saldo. Verifique se tem fundos suficientes.');
     }
+
+    await WalletService.creditWallet(values.targetId, amount, 'Recebimento de transferência');
+    Alert.alert('Sucesso!', 'Transferência realizada com sucesso!');
+    fetchWalletData();
   };
 
   if (loading) {
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
-        <View style={styles.loadingContainer}><Text style={{ color: colors.text.secondary }}>Carregando carteira...</Text></View>
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={colors.primary} />
+          <Text style={{ color: colors.text.secondary, marginTop: 12 }}>Carregando carteira...</Text>
+        </View>
       </SafeAreaView>
     );
   }
@@ -145,7 +267,6 @@ export default function WalletScreen() {
       </View>
 
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        {/* Cartão de Saldo Premium */}
         <View style={[styles.balanceCard, { backgroundColor: colors.primary }]}>
           <Text style={styles.balanceLabel}>Saldo Disponível</Text>
           <Text style={styles.balanceAmount}>{formatCurrency(balance)}</Text>
@@ -164,17 +285,16 @@ export default function WalletScreen() {
           </View>
         </View>
 
-        {/* Botões de Ação */}
         <View style={styles.actionsRow}>
-          <TouchableOpacity style={[styles.actionButton, { backgroundColor: colors.surface, borderColor: colors.border }]} onPress={handleAddFunds} activeOpacity={0.7}>
+          <TouchableOpacity style={[styles.actionButton, { backgroundColor: colors.surface, borderColor: colors.border }]} onPress={() => setShowAddModal(true)} activeOpacity={0.7}>
             <Ionicons name="add-circle" size={22} color={colors.success} />
             <Text style={[styles.actionButtonText, { color: colors.text.primary }]}>Adicionar</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={[styles.actionButton, { backgroundColor: colors.surface, borderColor: colors.border }]} onPress={handleWithdraw} activeOpacity={0.7}>
+          <TouchableOpacity style={[styles.actionButton, { backgroundColor: colors.surface, borderColor: colors.border }]} onPress={() => setShowWithdrawModal(true)} activeOpacity={0.7}>
             <Ionicons name="download" size={22} color={colors.primary} />
             <Text style={[styles.actionButtonText, { color: colors.text.primary }]}>Levantar</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={[styles.actionButton, { backgroundColor: colors.surface, borderColor: colors.border }]} onPress={handleTransfer} activeOpacity={0.7}>
+          <TouchableOpacity style={[styles.actionButton, { backgroundColor: colors.surface, borderColor: colors.border }]} onPress={() => setShowTransferModal(true)} activeOpacity={0.7}>
             <Ionicons name="send" size={22} color={colors.text.primary} />
             <Text style={[styles.actionButtonText, { color: colors.text.primary }]}>Transferir</Text>
           </TouchableOpacity>
@@ -224,6 +344,41 @@ export default function WalletScreen() {
           )}
         </View>
       </ScrollView>
+
+      {/* MODAIS ORGANIZADOS */}
+      <ActionModal
+        visible={showAddModal}
+        title="Adicionar Fundos"
+        onClose={() => setShowAddModal(false)}
+        onSubmit={handleAddFundsSubmit}
+        fields={[
+          { key: 'method', label: 'Método (1: M-Pesa, 2: e-Mola, 3: mKesh, 4: Banco)', placeholder: 'Digite 1, 2, 3 ou 4' },
+          { key: 'phoneOrAccount', label: 'Número de Telefone ou Conta', placeholder: 'Ex: 841234567' },
+          { key: 'amount', label: 'Valor a Carregar (MT)', placeholder: 'Ex: 5000', keyboardType: 'numeric' }
+        ]}
+      />
+
+      <ActionModal
+        visible={showWithdrawModal}
+        title="Levantar Fundos"
+        onClose={() => setShowWithdrawModal(false)}
+        onSubmit={handleWithdrawSubmit}
+        fields={[
+          { key: 'amount', label: 'Valor a Levantar (MT)', placeholder: 'Ex: 2000', keyboardType: 'numeric' },
+          { key: 'destination', label: 'Destino (M-Pesa, e-Mola ou Conta)', placeholder: 'Ex: 841234567' }
+        ]}
+      />
+
+      <ActionModal
+        visible={showTransferModal}
+        title="Transferir para Utilizador"
+        onClose={() => setShowTransferModal(false)}
+        onSubmit={handleTransferSubmit}
+        fields={[
+          { key: 'amount', label: 'Valor da Transferência (MT)', placeholder: 'Ex: 1000', keyboardType: 'numeric' },
+          { key: 'targetId', label: 'ID do Utilizador Destinatário', placeholder: 'Cole o ID aqui' }
+        ]}
+      />
     </SafeAreaView>
   );
 }
@@ -261,4 +416,17 @@ const styles = StyleSheet.create({
   txDescription: { fontSize: 15, fontWeight: '600' },
   txDate: { fontSize: 12, marginTop: 4 },
   txAmount: { fontSize: 16, fontWeight: '700' },
+  
+  // ✅ ESTILOS DO MODAL MELHORADOS
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', alignItems: 'center', padding: 20 },
+  modalContent: { width: '100%', maxWidth: 400, borderRadius: 20, borderWidth: 1, overflow: 'hidden', maxHeight: '80%' },
+  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 20, borderBottomWidth: 1 },
+  modalTitle: { fontSize: 18, fontWeight: '700', flex: 1 },
+  closeButton: { padding: 4 },
+  modalBody: { padding: 20 },
+  inputGroup: { marginBottom: 16 },
+  inputLabel: { fontSize: 14, fontWeight: '600', marginBottom: 6 },
+  modalInput: { width: '100%', paddingHorizontal: 16, paddingVertical: 14, borderRadius: 12, borderWidth: 1, fontSize: 16 },
+  modalFooter: { flexDirection: 'row', gap: 12, padding: 20, paddingTop: 0, borderTopWidth: 1 },
+  modalButton: { flex: 1, paddingVertical: 14, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
 });

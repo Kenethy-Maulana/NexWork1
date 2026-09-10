@@ -1,18 +1,20 @@
 {
   "expo": {
-    "name": "NexWork1",
-    "slug": "nexwork1",
-    "version": "1.0.0",
+    "name": "NexWork",
+    "slug": "nexwork",
+    "version": "1.0.1",
     "orientation": "portrait",
     "userInterfaceStyle": "automatic",
+    "icon": "./assets/icon.png",
     "splash": {
       "backgroundColor": "#0F172A"
     },
     "assetBundlePatterns": ["**/*"],
     "android": {
       "package": "com.kenethy.nexwork",
-      "versionCode": 3,
+      "versionCode": 4,
       "adaptiveIcon": {
+        "foregroundImage": "./assets/icon.png",
         "backgroundColor": "#0F172A"
       }
     },

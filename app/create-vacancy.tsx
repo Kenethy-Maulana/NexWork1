@@ -7,7 +7,7 @@ import { useTheme } from '../styles/theme';
 import { Input } from '../components/ui/Input';
 import { Button } from '../components/ui/Button';
 import { Calendar } from '../components/ui/Calendar';
-import { SuccessModal } from '../components/ui/SuccessModal'; // ✅ ADICIONADO
+import { SuccessModal } from '../components/ui/SuccessModal';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
 
@@ -28,7 +28,7 @@ const EXPERIENCE_LEVELS = [
 export default function CreateVacancyScreen() {
   const router = useRouter();
   const { user } = useAuth();
-  const { colors, spacing, borderRadius, fontSize } = useTheme();
+  const { colors } = useTheme();
   
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
@@ -44,46 +44,56 @@ export default function CreateVacancyScreen() {
   const [deadline, setDeadline] = useState('');
   const [showCalendar, setShowCalendar] = useState(false);
   const [loading, setLoading] = useState(false);
-  
-  const [showSuccess, setShowSuccess] = useState(false); // ✅ ADICIONADO
+  const [showSuccess, setShowSuccess] = useState(false);
+
+  const handleGoBack = () => {
+    if (router.canGoBack()) router.back();
+    else router.replace('/(tabs)');
+  };
 
   const handleCreate = async () => {
-    if (!title || !description || !location) { 
-      Alert.alert('Atenção', 'Preencha título, descrição e localização.'); 
-      return; 
+    if (!title || !description || !location) {
+      Alert.alert('Atenção', 'Preencha título, descrição e localização.');
+      return;
     }
-    if (!user) { 
-      Alert.alert('Atenção', 'Você precisa estar logado.'); 
-      return; 
+    if (!user) {
+      Alert.alert('Atenção', 'Você precisa estar logado.');
+      return;
     }
 
     setLoading(true);
     try {
       const { error } = await supabase.from('job_vacancies').insert({
-        employer_id: user.id, title, description,
+        employer_id: user.id,
+        title,
+        description,
         requirements: requirements.split('\n').filter(r => r.trim()),
         benefits: benefits.split('\n').filter(b => b.trim()),
-        job_type: jobType, experience_level: experienceLevel,
+        job_type: jobType,
+        experience_level: experienceLevel,
         salary_min: salaryMin ? parseFloat(salaryMin) : null,
         salary_max: salaryMax ? parseFloat(salaryMax) : null,
-        location, is_remote: isRemote,
+        location,
+        is_remote: isRemote,
         vacancies_count: parseInt(vacanciesCount) || 1,
-        deadline: deadline || null, status: 'open',
+        deadline: deadline || null,
+        status: 'open',
       });
+
       if (error) throw error;
-      
-      setShowSuccess(true); // ✅ SUBSTITUIU O ALERT
-    } catch (err: any) { 
-      Alert.alert('Erro', err.message); 
-    } finally { 
-      setLoading(false); 
+      setShowSuccess(true);
+    } catch (err: any) {
+      console.error('Erro ao criar vaga:', err);
+      Alert.alert('Erro', err.message);
+    } finally {
+      setLoading(false);
     }
   };
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
       <View style={[styles.header, { backgroundColor: colors.surface, borderBottomColor: colors.border }]}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+        <TouchableOpacity onPress={handleGoBack} style={styles.backButton}>
           <Ionicons name="arrow-back" size={24} color={colors.text.primary} />
         </TouchableOpacity>
         <Text style={[styles.headerTitle, { color: colors.text.primary }]}>Criar Vaga</Text>
@@ -100,12 +110,7 @@ export default function CreateVacancyScreen() {
           <Text style={[styles.label, { color: colors.text.primary }]}>Tipo de Contrato</Text>
           <View style={styles.optionsRow}>
             {JOB_TYPES.map((type) => (
-              <TouchableOpacity
-                key={type.id}
-                style={[styles.optionChip, { backgroundColor: jobType === type.id ? colors.primary : colors.surface, borderColor: jobType === type.id ? colors.primary : colors.border }]}
-                onPress={() => setJobType(type.id as any)}
-                activeOpacity={0.7}
-              >
+              <TouchableOpacity key={type.id} style={[styles.optionChip, { backgroundColor: jobType === type.id ? colors.primary : colors.surface, borderColor: jobType === type.id ? colors.primary : colors.border }]} onPress={() => setJobType(type.id as any)}>
                 <Ionicons name={type.icon as any} size={16} color={jobType === type.id ? '#FFFFFF' : colors.text.secondary} />
                 <Text style={[styles.optionText, { color: jobType === type.id ? '#FFFFFF' : colors.text.secondary, fontWeight: jobType === type.id ? '600' : '500' }]}>{type.label}</Text>
               </TouchableOpacity>
@@ -115,12 +120,7 @@ export default function CreateVacancyScreen() {
           <Text style={[styles.label, { color: colors.text.primary }]}>Nível de Experiência</Text>
           <View style={styles.optionsRow}>
             {EXPERIENCE_LEVELS.map((level) => (
-              <TouchableOpacity
-                key={level.id}
-                style={[styles.optionChip, { backgroundColor: experienceLevel === level.id ? colors.primary : colors.surface, borderColor: experienceLevel === level.id ? colors.primary : colors.border }]}
-                onPress={() => setExperienceLevel(level.id as any)}
-                activeOpacity={0.7}
-              >
+              <TouchableOpacity key={level.id} style={[styles.optionChip, { backgroundColor: experienceLevel === level.id ? colors.primary : colors.surface, borderColor: experienceLevel === level.id ? colors.primary : colors.border }]} onPress={() => setExperienceLevel(level.id as any)}>
                 <Text style={[styles.optionText, { color: experienceLevel === level.id ? '#FFFFFF' : colors.text.secondary, fontWeight: experienceLevel === level.id ? '600' : '500' }]}>{level.label}</Text>
               </TouchableOpacity>
             ))}
@@ -133,7 +133,7 @@ export default function CreateVacancyScreen() {
 
           <Input label="Localização *" placeholder="Ex: Maputo, Moçambique" value={location} onChangeText={setLocation} icon="location-outline" />
 
-          <TouchableOpacity style={styles.checkboxRow} onPress={() => setIsRemote(!isRemote)} activeOpacity={0.7}>
+          <TouchableOpacity style={styles.checkboxRow} onPress={() => setIsRemote(!isRemote)}>
             <View style={[styles.checkbox, { borderColor: isRemote ? colors.primary : colors.border, backgroundColor: isRemote ? colors.primary : 'transparent' }]}>
               {isRemote && <Ionicons name="checkmark" size={16} color="#FFFFFF" />}
             </View>
@@ -143,9 +143,9 @@ export default function CreateVacancyScreen() {
           <Input label="Número de Vagas" placeholder="1" value={vacanciesCount} onChangeText={setVacanciesCount} icon="people-outline" keyboardType="numeric" />
 
           <Text style={[styles.label, { color: colors.text.primary }]}>Data Limite para Candidaturas</Text>
-          <TouchableOpacity style={[styles.dateButton, { backgroundColor: colors.surface, borderColor: colors.border }]} onPress={() => setShowCalendar(!showCalendar)} activeOpacity={0.7}>
+          <TouchableOpacity style={[styles.dateButton, { backgroundColor: colors.surface, borderColor: colors.border }]} onPress={() => setShowCalendar(!showCalendar)}>
             <Ionicons name="calendar-outline" size={20} color={colors.primary} />
-            <Text style={[styles.dateButtonText, { color: colors.text.primary }]}>{deadline || 'Selecionar data limite (opcional)'}</Text>
+            <Text style={[styles.dateButtonText, { color: deadline ? colors.text.primary : colors.text.light }]}>{deadline || 'Selecionar data limite (opcional)'}</Text>
           </TouchableOpacity>
           {showCalendar && (
             <View style={styles.calendarContainer}>
@@ -159,15 +159,11 @@ export default function CreateVacancyScreen() {
         </View>
       </ScrollView>
 
-      {/* ✅ MODAL DE SUCESSO */}
       <SuccessModal 
         visible={showSuccess} 
         title="Vaga Publicada! 🎉" 
         message="A tua vaga foi criada com sucesso e já está visível para os candidatos." 
-        onClose={() => {
-          setShowSuccess(false);
-          router.replace('/(tabs)');
-        }} 
+        onClose={() => { setShowSuccess(false); router.replace('/(tabs)'); }} 
       />
     </SafeAreaView>
   );
@@ -178,11 +174,11 @@ const styles = StyleSheet.create({
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingVertical: 16, borderBottomWidth: 1 },
   backButton: { padding: 4 },
   headerTitle: { fontSize: 18, fontWeight: '700' },
-  headerSpacer: { width: 32 },
+  headerSpacer: { width: 40 },
   scrollContent: { padding: 20, paddingBottom: 40 },
   form: { gap: 16 },
   label: { fontSize: 14, fontWeight: '600', marginBottom: 8 },
-  optionsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 8 },
+  optionsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 12 },
   optionChip: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 10, borderRadius: 20, borderWidth: 1, gap: 6 },
   optionText: { fontSize: 13 },
   salaryRow: { flexDirection: 'row', gap: 12 },

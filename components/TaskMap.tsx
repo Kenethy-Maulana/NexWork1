@@ -1,24 +1,22 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, Dimensions, Platform, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, Dimensions, Platform, TouchableOpacity, ActivityIndicator, ScrollView } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../styles/theme';
 import { supabase } from '../lib/supabase';
 
-// Debug: Verifica qual plataforma está a ser detetada
-console.log('🌍 Platform.OS detectado como:', Platform.OS);
-
 // ==========================================
-// 🌍 IMPORTAÇÕES WEB (LEAFLET - OPENSTREETMAP)
+// 🌍 CONFIGURAÇÃO WEB (LEAFLET)
 // ==========================================
 let MapContainer: any, TileLayer: any, Marker: any, Popup: any, useMap: any, L: any;
 let isLeafletLoaded = false;
 
 if (Platform.OS === 'web') {
   try {
+    // Importa o CSS do Leaflet (crucial para o mapa aparecer)
+    require('leaflet/dist/leaflet.css');
     const leaflet = require('react-leaflet');
     L = require('leaflet');
-    require('leaflet/dist/leaflet.css');
     
     MapContainer = leaflet.MapContainer;
     TileLayer = leaflet.TileLayer;
@@ -26,32 +24,34 @@ if (Platform.OS === 'web') {
     Popup = leaflet.Popup;
     useMap = leaflet.useMap;
     isLeafletLoaded = true;
-    console.log('✅ Leaflet carregado com sucesso!');
   } catch (error) {
-    console.error('❌ Erro ao carregar Leaflet:', error);
+    console.error('❌ Erro ao carregar Leaflet. Executa: npm install react-leaflet leaflet', error);
   }
 }
 
 // ==========================================
-// 📱 IMPORTAÇÕES MOBILE (REACT NATIVE MAPS)
+// 📱 CONFIGURAÇÃO MOBILE (REACT NATIVE MAPS)
 // ==========================================
-let RNMapView: any, RNMarker: any;
+let RNMapView: any = null;
+let RNMarker: any = null;
+
 if (Platform.OS !== 'web') {
   try {
     const maps = require('react-native-maps');
     RNMapView = maps.default;
     RNMarker = maps.Marker;
   } catch (error) {
-    console.error('❌ Erro ao carregar react-native-maps:', error);
+    console.warn('⚠️ react-native-maps não encontrado.');
   }
 }
 
 const { width, height } = Dimensions.get('window');
 
 // ==========================================
-// 🎯 COMPONENTE QUE CONTROLA O MAPA (CENTRAR)
+// 🎯 COMPONENTE PARA CENTRAR O MAPA (WEB)
 // ==========================================
 function MapController({ center }: { center: [number, number] | null }) {
+  if (Platform.OS !== 'web' || !useMap) return null;
   const map = useMap();
   useEffect(() => {
     if (center && map) {
@@ -62,7 +62,7 @@ function MapController({ center }: { center: [number, number] | null }) {
 }
 
 // ==========================================
-// 🎨 CRIAR ÍCONE CUSTOMIZADO DO PIN
+// 🎨 ÍCONE CUSTOMIZADO DO PIN (WEB)
 // ==========================================
 function createCustomIcon(category: string, isSelected: boolean, themeColors: any) {
   const icons: Record<string, string> = {
@@ -70,7 +70,6 @@ function createCustomIcon(category: string, isSelected: boolean, themeColors: an
     limpeza: '🧹', mudancas: '📦', ti: '💻', outros: '🔧',
   };
   const emoji = icons[category] || '📋';
-  
   const size = isSelected ? 50 : 40;
   const bgColor = isSelected ? themeColors.text.primary : themeColors.primary;
   const borderColor = isSelected ? themeColors.primary : themeColors.surface;
@@ -79,14 +78,11 @@ function createCustomIcon(category: string, isSelected: boolean, themeColors: an
     className: 'custom-pin',
     html: `
       <div style="
-        width: ${size}px;
-        height: ${size}px;
+        width: ${size}px; height: ${size}px;
         background-color: ${bgColor};
         border: 3px solid ${borderColor};
         border-radius: 50%;
-        display: flex;
-        align-items: center;
-        justify-content: center;
+        display: flex; align-items: center; justify-content: center;
         font-size: ${isSelected ? '24px' : '20px'};
         box-shadow: 0 4px 12px rgba(0,0,0,0.3);
         transition: all 0.2s ease;
@@ -105,7 +101,7 @@ export default function TaskMap() {
   const [tasks, setTasks] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedTask, setSelectedTask] = useState<any>(null);
-  const listRef = useRef<HTMLDivElement>(null);
+  const listRef = useRef<any>(null);
 
   useEffect(() => {
     fetchTasks();
@@ -113,18 +109,30 @@ export default function TaskMap() {
 
   const fetchTasks = async () => {
     setLoading(true);
-    const { data, error } = await supabase
-      .from('tasks')
-      .select('id, title, category, budget, latitude, longitude, location_name')
-      .eq('status', 'open')
-      .not('latitude', 'is', null)
-      .not('longitude', 'is', null)
-      .order('created_at', { ascending: false });
+    try {
+      const { data, error } = await supabase
+        .from('tasks')
+        .select('id, title, category, budget, latitude, longitude, location_name')
+        .eq('status', 'open')
+        .not('latitude', 'is', null)
+        .not('longitude', 'is', null)
+        .order('created_at', { ascending: false });
 
-    if (error) console.error('Erro ao buscar tarefas para o mapa:', error);
-    else setTasks(data || []);
-    
-    setLoading(false);
+      if (error) throw error;
+
+      // ✅ CORREÇÃO CRÍTICA: Garantir que são NÚMEROS para evitar crash no mobile
+      const safeTasks = (data || []).map((task: any) => ({
+        ...task,
+        latitude: Number(task.latitude),
+        longitude: Number(task.longitude)
+      }));
+      
+      setTasks(safeTasks);
+    } catch (err) {
+      console.error('Erro ao buscar tarefas para o mapa:', err);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const getCategoryIcon = (category: string) => {
@@ -152,66 +160,48 @@ export default function TaskMap() {
   if (loading) {
     return (
       <View style={[styles.loadingContainer, { backgroundColor: colors.background }]}>
-        <Text style={{ color: colors.text.secondary }}>A carregar mapa...</Text>
+        <ActivityIndicator size="large" color={colors.primary} />
+        <Text style={{ color: colors.text.secondary, marginTop: 12 }}>A carregar mapa...</Text>
       </View>
     );
   }
 
   // ==========================================
-  // 🛡️ FALLBACK DE ERRO PARA WEB
+  // 🌍 RENDERIZAÇÃO WEB COMPLETA (LEAFLET)
   // ==========================================
-  if (Platform.OS === 'web' && !isLeafletLoaded) {
-    return (
-      <View style={[styles.mobileContainer, { backgroundColor: colors.background, justifyContent: 'center', alignItems: 'center', padding: 20 }]}>
-        <Ionicons name="warning" size={48} color={colors.error} />
-        <Text style={[styles.errorTitle, { color: colors.text.primary }]}>Leaflet não encontrado</Text>
-        <Text style={[styles.errorText, { color: colors.text.secondary }]}>
-          Para usar o mapa na Web, instala as dependências executando no terminal:
-        </Text>
-        <Text style={[styles.codeBlock, { color: colors.primary }]}>
-          npm install react-leaflet leaflet
-        </Text>
-        <Text style={[styles.errorText, { color: colors.text.secondary, marginTop: 10 }]}>
-          Depois, reinicia o servidor com: npx expo start -c
-        </Text>
-      </View>
-    );
-  }
+  if (Platform.OS === 'web') {
+    if (!isLeafletLoaded) {
+      return (
+        <View style={[styles.fallbackMap, { backgroundColor: colors.background }]}>
+          <Ionicons name="warning" size={48} color={colors.error} />
+          <Text style={[styles.errorText, { color: colors.text.primary, marginTop: 12 }]}>Leaflet não instalado</Text>
+          <Text style={[styles.errorText, { color: colors.text.secondary }]}>
+            Executa no terminal: `npm install react-leaflet leaflet` e reinicia o servidor.
+          </Text>
+        </View>
+      );
+    }
 
-  // ==========================================
-  // 🌍 RENDERIZAÇÃO WEB (PREMIUM COM LEAFLET)
-  // ==========================================
-  if (Platform.OS === 'web' && isLeafletLoaded) {
     return (
       <div style={{ 
-        display: 'flex', 
-        height: 'calc(100vh - 150px)', 
-        width: '100%', 
-        backgroundColor: colors.background, 
-        borderRadius: borderRadius.lg, 
-        overflow: 'hidden', 
-        border: `1px solid ${colors.border}`,
-        boxShadow: '0 4px 20px rgba(0,0,0,0.08)'
+        display: 'flex', height: 'calc(100vh - 60px)', width: '100%', 
+        backgroundColor: colors.background, overflow: 'hidden' 
       }}>
         {/* Lado Esquerdo: Lista de Tarefas */}
         <div style={{ 
-          width: '380px', 
-          borderRight: `1px solid ${colors.border}`, 
-          display: 'flex', 
-          flexDirection: 'column', 
-          backgroundColor: colors.surface 
+          width: '380px', borderRight: `1px solid ${colors.border}`, 
+          display: 'flex', flexDirection: 'column', backgroundColor: colors.surface 
         }}>
           <div style={{ 
-            padding: '20px', 
-            borderBottom: `1px solid ${colors.border}`,
-            background: `linear-gradient(135deg, ${colors.primary} 0%, ${colors.primaryDark} 100%)`,
+            padding: '20px', borderBottom: `1px solid ${colors.border}`,
+            background: `linear-gradient(135deg, ${colors.primary} 0%, #2563EB 100%)`,
             color: '#FFFFFF'
           }}>
             <h3 style={{ margin: 0, fontSize: '20px', fontWeight: '700' }}>
               📍 {tasks.length} Tarefas Disponíveis
             </h3>
             <p style={{ margin: '6px 0 0', fontSize: '13px', opacity: 0.9 }}>
-              Clique numa tarefa para ver no mapa
+              Clica numa tarefa para ver no mapa
             </p>
           </div>
           
@@ -224,41 +214,32 @@ export default function TaskMap() {
                   id={`task-card-${task.id}`}
                   onClick={() => handleSelectTask(task)}
                   style={{ 
-                    padding: '16px', 
-                    marginBottom: '12px', 
-                    borderRadius: '12px', 
+                    padding: '16px', marginBottom: '12px', borderRadius: '12px', 
                     border: `2px solid ${isSelected ? colors.primary : 'transparent'}`,
-                    backgroundColor: isSelected ? colors.primary + '15' : colors.surfaceLight,
-                    cursor: 'pointer',
-                    transition: 'all 0.2s ease',
+                    backgroundColor: isSelected ? colors.primary + '15' : colors.background,
+                    cursor: 'pointer', transition: 'all 0.2s ease',
                     boxShadow: isSelected ? `0 4px 12px ${colors.primary}33` : 'none'
                   }}
                 >
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
                     <span style={{ 
-                      fontSize: '28px', width: '44px', height: '44px', display: 'flex',
+                      fontSize: '24px', width: '44px', height: '44px', display: 'flex',
                       alignItems: 'center', justifyContent: 'center', backgroundColor: colors.surface,
                       borderRadius: '10px', boxShadow: '0 2px 4px rgba(0,0,0,0.05)'
                     }}>
                       {getCategoryIcon(task.category)}
                     </span>
                     <span style={{ 
-                      fontSize: '16px', fontWeight: '700', color: colors.success,
+                      fontSize: '15px', fontWeight: '700', color: colors.success,
                       backgroundColor: colors.success + '20', padding: '4px 10px', borderRadius: '8px'
                     }}>
                       {formatCurrency(task.budget)}
                     </span>
                   </div>
-                  <h4 style={{ 
-                    margin: '0 0 6px', fontSize: '15px', fontWeight: '600', 
-                    color: colors.text.primary, lineHeight: '1.3'
-                  }}>
+                  <h4 style={{ margin: '0 0 6px', fontSize: '15px', fontWeight: '600', color: colors.text.primary }}>
                     {task.title}
                   </h4>
-                  <p style={{ 
-                    margin: 0, fontSize: '13px', color: colors.text.secondary,
-                    display: 'flex', alignItems: 'center', gap: '4px'
-                  }}>
+                  <p style={{ margin: 0, fontSize: '13px', color: colors.text.secondary, display: 'flex', alignItems: 'center', gap: '4px' }}>
                     📍 {task.location_name || 'Localização'}
                   </p>
                 </div>
@@ -276,7 +257,6 @@ export default function TaskMap() {
           >
             <MapController center={selectedTask ? [selectedTask.latitude, selectedTask.longitude] : null} />
             
-            {/* ✅ ALTERAÇÃO AQUI: OpenStreetMap gratuito, sem API Key */}
             <TileLayer
               attribution='&copy; OpenStreetMap contributors'
               url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
@@ -308,10 +288,8 @@ export default function TaskMap() {
                       style={{ 
                         marginTop: '4px', padding: '8px 16px', backgroundColor: colors.primary, 
                         color: '#FFFFFF', border: 'none', borderRadius: '8px', cursor: 'pointer', 
-                        fontSize: '13px', fontWeight: '600', width: '100%', transition: 'all 0.2s'
+                        fontSize: '13px', fontWeight: '600', width: '100%'
                       }}
-                      onMouseOver={(e) => (e.currentTarget.style.opacity = '0.9')}
-                      onMouseOut={(e) => (e.currentTarget.style.opacity = '1')}
                     >
                       Ver Detalhes →
                     </button>
@@ -328,16 +306,33 @@ export default function TaskMap() {
   // ==========================================
   // 📱 RENDERIZAÇÃO MOBILE (REACT NATIVE MAPS)
   // ==========================================
+  if (!RNMapView) {
+    return (
+      <View style={[styles.fallbackMap, { backgroundColor: colors.background }]}>
+        <Ionicons name="map-outline" size={48} color={colors.error} />
+        <Text style={[styles.errorText, { color: colors.text.primary, marginTop: 12 }]}>Mapa indisponível</Text>
+        <Text style={[styles.errorText, { color: colors.text.secondary, textAlign: 'center', paddingHorizontal: 20 }]}>
+          Executa no terminal: `npx expo install react-native-maps` e depois `npx expo run:android`
+        </Text>
+      </View>
+    );
+  }
+
   return (
-    <View style={[styles.mobileContainer, { backgroundColor: colors.background, borderRadius: borderRadius.lg, borderColor: colors.border, borderWidth: 1 }]}>
-      {RNMapView ? (
-        <RNMapView
-          style={styles.map}
-          region={{ latitude: -25.9655, longitude: 32.5832, latitudeDelta: 0.0922, longitudeDelta: 0.0421 }}
-          showsUserLocation={true}
-          showsMyLocationButton={true}
-        >
-          {tasks.map((task) => (
+    <View style={[styles.mobileContainer, { backgroundColor: colors.background }]}>
+      <RNMapView
+        style={styles.map}
+        initialRegion={{ 
+          latitude: tasks.length > 0 ? tasks[0].latitude : -25.9655, 
+          longitude: tasks.length > 0 ? tasks[0].longitude : 32.5832, 
+          latitudeDelta: 0.0922, 
+          longitudeDelta: 0.0421 
+        }}
+        showsUserLocation={true}
+      >
+        {tasks.map((task) => {
+          if (!task.latitude || !task.longitude || isNaN(task.latitude) || isNaN(task.longitude)) return null;
+          return (
             <RNMarker
               key={task.id}
               coordinate={{ latitude: task.latitude, longitude: task.longitude }}
@@ -348,29 +343,27 @@ export default function TaskMap() {
               <View style={[
                 styles.customMarker, 
                 { backgroundColor: colors.primary, borderColor: colors.surface },
-                selectedTask?.id === task.id && { backgroundColor: colors.text.primary, borderColor: colors.primary, transform: [{ scale: 1.2 }] }
+                selectedTask?.id === task.id && { backgroundColor: colors.text.primary, borderColor: colors.primary }
               ]}>
                 <Text style={{ fontSize: 20 }}>{getCategoryIcon(task.category)}</Text>
               </View>
             </RNMarker>
-          ))}
-        </RNMapView>
-      ) : (
-        <View style={styles.fallbackMap}>
-          <Text style={{ color: colors.text.secondary }}>Mapa não disponível nesta plataforma.</Text>
-        </View>
-      )}
+          );
+        })}
+      </RNMapView>
 
       {selectedTask && (
         <View style={[styles.bottomSheet, { backgroundColor: colors.surface, borderColor: colors.border }]}>
           <View style={styles.bottomSheetHeader}>
-            <Text style={[styles.bottomSheetTitle, { color: colors.text.primary }]}>{selectedTask.title}</Text>
+            <Text style={[styles.bottomSheetTitle, { color: colors.text.primary }]} numberOfLines={1}>{selectedTask.title}</Text>
             <TouchableOpacity onPress={() => setSelectedTask(null)}>
               <Ionicons name="close" size={24} color={colors.text.secondary} />
             </TouchableOpacity>
           </View>
           <Text style={[styles.bottomSheetPrice, { color: colors.success }]}>{formatCurrency(selectedTask.budget)}</Text>
-          <Text style={[styles.bottomSheetLocation, { color: colors.text.secondary }]}>📍 {selectedTask.location_name}</Text>
+          <Text style={[styles.bottomSheetLocation, { color: colors.text.secondary }]} numberOfLines={2}>
+            📍 {selectedTask.location_name || 'Localização não especificada'}
+          </Text>
           <TouchableOpacity 
             style={[styles.bottomSheetButton, { backgroundColor: colors.primary }]}
             onPress={() => router.push({ pathname: '/task-details', params: { id: selectedTask.id } })}
@@ -383,22 +376,11 @@ export default function TaskMap() {
   );
 }
 
-// Estilos estáticos
 const styles = StyleSheet.create({
-  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', height: 400 },
-  mobileContainer: { flex: 1, overflow: 'hidden' },
+  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   fallbackMap: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 20 },
-  errorTitle: { fontSize: 20, fontWeight: '700', marginTop: 16, marginBottom: 8 },
   errorText: { fontSize: 15, textAlign: 'center', lineHeight: 22 },
-  codeBlock: { 
-    fontSize: 14, 
-    fontWeight: '600', 
-    backgroundColor: 'rgba(0,0,0,0.05)', 
-    padding: 12, 
-    borderRadius: 8, 
-    marginTop: 12,
-    fontFamily: 'monospace'
-  },
+  mobileContainer: { flex: 1, overflow: 'hidden' },
   map: { width: '100%', height: '100%' },
   customMarker: {
     width: 40, height: 40, borderRadius: 20,

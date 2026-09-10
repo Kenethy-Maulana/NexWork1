@@ -14,7 +14,9 @@ export default function NotificationsScreen() {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => { fetchNotifications(); }, []);
+  useEffect(() => { 
+    if (user?.id) fetchNotifications(); 
+  }, [user?.id]);
 
   const fetchNotifications = async () => {
     if (!user?.id) return;
@@ -25,12 +27,23 @@ export default function NotificationsScreen() {
   };
 
   const handleMarkAsRead = async (notificationId: string, referenceId: string | null, referenceType: string | null) => {
+    // 1. Marca como lida no banco de dados
     await NotificationService.markAsRead(notificationId);
+    
+    // 2. Roteamento inteligente baseado no tipo de referência
     if (referenceId && referenceType) {
-      if (referenceType === 'task') router.push({ pathname: '/task-details', params: { id: referenceId } });
-      else if (referenceType === 'vacancy') router.push({ pathname: '/vacancy-details', params: { id: referenceId } });
+      if (referenceType === 'task') {
+        router.push({ pathname: '/task-details', params: { id: referenceId } });
+      } else if (referenceType === 'vacancy') {
+        router.push({ pathname: '/vacancy-details', params: { id: referenceId } });
+      } else if (referenceType === 'application') {
+        // ✅ CORREÇÃO: Leva o candidato à lista de candidaturas onde ele verá o botão da entrevista
+        router.push('/my-applications');
+      }
+    } else {
+      // Se não tiver referência, apenas atualiza a lista
+      fetchNotifications();
     }
-    fetchNotifications();
   };
 
   const handleMarkAllAsRead = async () => {
@@ -63,7 +76,11 @@ export default function NotificationsScreen() {
     const icon = getIcon(item.type);
     return (
       <TouchableOpacity 
-        style={[styles.notificationCard, { backgroundColor: colors.surface, borderColor: colors.border }, !item.is_read && { backgroundColor: colors.primary + '10', borderColor: colors.primary }]}
+        style={[
+          styles.notificationCard, 
+          { backgroundColor: colors.surface, borderColor: colors.border }, 
+          !item.is_read && { backgroundColor: colors.primary + '15', borderColor: colors.primary }
+        ]}
         onPress={() => handleMarkAsRead(item.id, item.reference_id, item.reference_type)}
         activeOpacity={0.7}
       >
@@ -73,7 +90,9 @@ export default function NotificationsScreen() {
         <View style={{ flex: 1 }}>
           <Text style={[styles.notificationTitle, { color: colors.text.primary }]}>{item.title}</Text>
           <Text style={[styles.notificationMessage, { color: colors.text.secondary }]}>{item.message}</Text>
-          <Text style={[styles.notificationDate, { color: colors.text.light }]}>{new Date(item.created_at).toLocaleDateString('pt-MZ', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}</Text>
+          <Text style={[styles.notificationDate, { color: colors.text.light }]}>
+            {new Date(item.created_at).toLocaleDateString('pt-MZ', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
+          </Text>
         </View>
         {!item.is_read && <View style={[styles.unreadDot, { backgroundColor: colors.primary }]} />}
       </TouchableOpacity>
@@ -81,7 +100,13 @@ export default function NotificationsScreen() {
   };
 
   if (loading) {
-    return <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}><View style={styles.loadingContainer}><Text style={{ color: colors.text.secondary }}>Carregando notificações...</Text></View></SafeAreaView>;
+    return (
+      <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
+        <View style={styles.loadingContainer}>
+          <Text style={{ color: colors.text.secondary }}>Carregando notificações...</Text>
+        </View>
+      </SafeAreaView>
+    );
   }
 
   const unreadCount = notifications.filter(n => !n.is_read).length;
@@ -95,7 +120,7 @@ export default function NotificationsScreen() {
         <Text style={[styles.headerTitle, { color: colors.text.primary }]}>Notificações</Text>
         {unreadCount > 0 ? (
           <TouchableOpacity onPress={handleMarkAllAsRead} style={styles.markAllButton}>
-            <Text style={[styles.markAllText, { color: colors.primary }]}>Marcar todas como lidas</Text>
+            <Text style={[styles.markAllText, { color: colors.primary }]}>Marcar todas</Text>
           </TouchableOpacity>
         ) : <View style={styles.headerSpacer} />}
       </View>
@@ -125,14 +150,14 @@ const styles = StyleSheet.create({
   headerTitle: { fontSize: 18, fontWeight: '700' },
   headerSpacer: { width: 32 },
   markAllButton: { padding: 4 },
-  markAllText: { fontSize: 14, fontWeight: '600' },
+  markAllText: { fontSize: 13, fontWeight: '600' },
   listContent: { padding: 20, paddingBottom: 40 },
   notificationCard: { flexDirection: 'row', alignItems: 'flex-start', gap: 14, padding: 16, borderRadius: 16, marginBottom: 12, borderWidth: 1 },
   iconContainer: { width: 48, height: 48, borderRadius: 24, alignItems: 'center', justifyContent: 'center' },
   notificationTitle: { fontSize: 15, fontWeight: '700', marginBottom: 4 },
   notificationMessage: { fontSize: 14, lineHeight: 20, marginBottom: 4 },
   notificationDate: { fontSize: 12 },
-  unreadDot: { width: 8, height: 8, borderRadius: 4 },
+  unreadDot: { width: 8, height: 8, borderRadius: 4, marginTop: 4 },
   emptyContainer: { alignItems: 'center', justifyContent: 'center', paddingVertical: 60 },
   emptyText: { fontSize: 15, marginTop: 16 },
 });
