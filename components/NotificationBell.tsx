@@ -3,57 +3,38 @@ import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { colors, spacing, borderRadius, fontSize } from '../styles/theme';
+import { useTheme } from '../styles/theme';
 import { useAuth } from '../contexts/AuthContext';
 import { NotificationService } from '../lib/notifications';
 
 export default function NotificationBell() {
   const router = useRouter();
   const { user } = useAuth();
+  const { colors, spacing, borderRadius } = useTheme(); // Hook de Tema
   const [unreadCount, setUnreadCount] = useState(0);
 
   useEffect(() => {
-    if (!user?.id) {
-      console.log('⚠️ NotificationBell: user.id não definido');
-      return;
-    }
+    if (!user?.id) return;
 
-    console.log('🔔 NotificationBell: Iniciando para user:', user.id);
-
-    // Função para buscar contagem
     const fetchCount = async () => {
-      console.log('🔍 A buscar contagem de notificações...');
       const count = await NotificationService.getUnreadCount(user.id);
-      console.log(`✅ Contagem encontrada: ${count}`);
       setUnreadCount(count);
     };
 
-    // Buscar imediatamente
     fetchCount();
-
-    // Polling a cada 5 segundos (mais rápido para teste)
-    const interval = setInterval(() => {
-      console.log('🔄 Polling: A verificar...');
-      fetchCount();
-    }, 5000);
-
-    // Cleanup
-    return () => {
-      console.log('🧹 NotificationBell: Limpando interval');
-      clearInterval(interval);
-    };
+    const interval = setInterval(fetchCount, 5000);
+    return () => clearInterval(interval);
   }, [user?.id]);
-
-  console.log(`🎨 Renderizando sino com contador: ${unreadCount}`);
 
   return (
     <TouchableOpacity 
-      style={styles.container} 
+      style={[styles.container, { backgroundColor: colors.surfaceLight }]} 
       onPress={() => router.push('/notifications')}
+      activeOpacity={0.7}
     >
-      <Ionicons name="notifications-outline" size={28} color={colors.primary} />
+      <Ionicons name="notifications" size={24} color={colors.primary} />
       {unreadCount > 0 && (
-        <View style={styles.badge}>
+        <View style={[styles.badge, { backgroundColor: colors.error }]}>
           <Text style={styles.badgeText}>{unreadCount > 99 ? '99+' : unreadCount}</Text>
         </View>
       )}
@@ -64,24 +45,31 @@ export default function NotificationBell() {
 const styles = StyleSheet.create({
   container: { 
     position: 'relative', 
-    padding: spacing.xs, 
-    marginRight: spacing.sm 
+    padding: 10, 
+    borderRadius: 9999,
+    marginRight: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
   },
   badge: {
     position: 'absolute',
-    top: 0,
-    right: 0,
-    backgroundColor: colors.error,
-    borderRadius: borderRadius.full,
-    minWidth: 20,
-    height: 20,
+    top: 6,
+    right: 6,
+    borderRadius: 9999,
+    minWidth: 18,
+    height: 18,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: spacing.xs,
+    paddingHorizontal: 4,
+    borderWidth: 1.5,
+    borderColor: '#FFFFFF', // Borda branca para destacar em qualquer fundo
   },
   badgeText: {
-    fontSize: fontSize.xs,
-    color: colors.surface,
-    fontWeight: '700',
+    fontSize: 10,
+    color: '#FFFFFF',
+    fontWeight: '800',
   },
 });

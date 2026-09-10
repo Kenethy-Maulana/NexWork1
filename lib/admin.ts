@@ -24,6 +24,10 @@ export interface AdvancedAnalytics {
   top_workers: any[];
   monthly_revenue: any[];
   financial_summary: any;
+  avg_completion_days?: number;
+  completion_rate?: number;
+  avg_client_rating?: number;
+  
 }
 
 export const AdminService = {

@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, KeyboardAvoidingView, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { colors, fontSize, spacing, borderRadius } from '../styles/theme';
+import { useTheme } from '../styles/theme';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
 
@@ -24,6 +24,8 @@ interface ChatBoxProps {
 
 export default function ChatBox({ taskId, otherUserId, otherUserName }: ChatBoxProps) {
   const { user } = useAuth();
+  const { colors, spacing, borderRadius, fontSize } = useTheme(); // Hook de Tema
+  
   const [messages, setMessages] = useState<Message[]>([]);
   const [newMessage, setNewMessage] = useState('');
   const [loading, setLoading] = useState(true);
@@ -34,58 +36,27 @@ export default function ChatBox({ taskId, otherUserId, otherUserName }: ChatBoxP
     if (taskId && user?.id) {
       fetchMessages();
       
-      // Subscrever a novas mensagens em tempo real
       const channel = supabase
         .channel(`chat-${taskId}`)
-        .on(
-          'postgres_changes',
-          {
-            event: 'INSERT',
-            schema: 'public',
-            table: 'messages',
-            filter: `task_id=eq.${taskId}`,
-          },
-          (payload) => {
-            console.log('💬 Nova mensagem recebida em tempo real!');
-            const newMsg = payload.new as Message;
-            
-            setMessages((prev) => {
-              // Evitar duplicatas
-              if (prev.some(m => m.id === newMsg.id)) return prev;
-              return [...prev, newMsg];
-            });
-            
-            scrollToBottom();
-            
-            // Marcar como lida se a mensagem for para mim
-            if (newMsg.receiver_id === user.id && newMsg.sender_id !== user.id) {
-              markMessagesAsRead();
-            }
+        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages', filter: `task_id=eq.${taskId}` }, (payload) => {
+          const newMsg = payload.new as Message;
+          setMessages((prev) => prev.some(m => m.id === newMsg.id) ? prev : [...prev, newMsg]);
+          scrollToBottom();
+          if (newMsg.receiver_id === user.id && newMsg.sender_id !== user.id) {
+            markMessagesAsRead();
           }
-        )
-        .subscribe((status) => {
-          console.log('📡 Status do chat:', status);
-        });
+        })
+        .subscribe();
 
-      return () => {
-        supabase.removeChannel(channel);
-      };
+      return () => { supabase.removeChannel(channel); };
     }
   }, [taskId, user?.id]);
 
   const fetchMessages = async () => {
     setLoading(true);
-    const { data, error } = await supabase
-      .from('messages')
-      .select('*')
-      .eq('task_id', taskId)
-      .order('created_at', { ascending: true });
-
-    if (error) {
-      console.error('❌ Erro ao buscar mensagens:', error);
-    } else {
+    const { data, error } = await supabase.from('messages').select('*').eq('task_id', taskId).order('created_at', { ascending: true });
+    if (!error) {
       setMessages(data || []);
-      // Marcar mensagens recebidas como lidas
       await markMessagesAsRead();
       scrollToBottom();
     }
@@ -94,42 +65,26 @@ export default function ChatBox({ taskId, otherUserId, otherUserName }: ChatBoxP
 
   const markMessagesAsRead = async () => {
     if (!user?.id) return;
-    
     try {
-      await supabase.rpc('mark_messages_as_read', {
-        p_user_id: user.id,
-        p_task_id: taskId,
-      });
-    } catch (err) {
-      console.error('❌ Erro ao marcar mensagens como lidas:', err);
-    }
+      await supabase.rpc('mark_messages_as_read', { p_user_id: user.id, p_task_id: taskId });
+    } catch (err) { console.error('Erro ao marcar como lidas:', err); }
   };
 
   const handleSendMessage = async () => {
     if (!newMessage.trim() || !user?.id || sending) return;
-
     const messageText = newMessage.trim();
     setNewMessage('');
     setSending(true);
 
     try {
-      // Usar a função SQL segura que cria mensagem + notificação
-      const { data, error } = await supabase.rpc('send_message', {
-        p_task_id: taskId,
-        p_sender_id: user.id,
-        p_receiver_id: otherUserId,
-        p_message: messageText,
+      const { error } = await supabase.rpc('send_message', {
+        p_task_id: taskId, p_sender_id: user.id, p_receiver_id: otherUserId, p_message: messageText,
       });
-
       if (error) {
-        console.error('❌ Erro ao enviar mensagem:', error);
-        alert('Erro ao enviar mensagem: ' + error.message);
-        setNewMessage(messageText); // Restaurar a mensagem em caso de erro
-      } else {
-        console.log('✅ Mensagem enviada com sucesso! ID:', data);
+        alert('Erro ao enviar: ' + error.message);
+        setNewMessage(messageText);
       }
     } catch (err: any) {
-      console.error('❌ Exceção ao enviar mensagem:', err);
       alert('Erro: ' + err.message);
       setNewMessage(messageText);
     } finally {
@@ -137,74 +92,60 @@ export default function ChatBox({ taskId, otherUserId, otherUserName }: ChatBoxP
     }
   };
 
-  const scrollToBottom = () => {
-    setTimeout(() => {
-      scrollViewRef.current?.scrollToEnd({ animated: true });
-    }, 150);
-  };
+  const scrollToBottom = () => setTimeout(() => scrollViewRef.current?.scrollToEnd({ animated: true }), 150);
 
   const formatTime = (dateString: string) => {
     const date = new Date(dateString);
-    const now = new Date();
-    const isToday = date.toDateString() === now.toDateString();
-    
-    if (isToday) {
-      return date.toLocaleTimeString('pt-MZ', { hour: '2-digit', minute: '2-digit' });
-    }
-    return date.toLocaleDateString('pt-MZ', { day: '2-digit', month: 'short' }) + ' ' + 
-           date.toLocaleTimeString('pt-MZ', { hour: '2-digit', minute: '2-digit' });
+    const isToday = date.toDateString() === new Date().toDateString();
+    return isToday 
+      ? date.toLocaleTimeString('pt-MZ', { hour: '2-digit', minute: '2-digit' })
+      : date.toLocaleDateString('pt-MZ', { day: '2-digit', month: 'short' }) + ' ' + date.toLocaleTimeString('pt-MZ', { hour: '2-digit', minute: '2-digit' });
   };
 
   return (
-    <KeyboardAvoidingView 
-      style={styles.container}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-    >
-      <View style={styles.header}>
-        <Ionicons name="chatbubbles" size={20} color={colors.primary} />
-        <Text style={styles.headerTitle}>Chat com {otherUserName}</Text>
-        <View style={styles.onlineIndicator}>
-          <View style={styles.onlineDot} />
-          <Text style={styles.onlineText}>Online</Text>
+    <KeyboardAvoidingView style={[styles.container, { backgroundColor: colors.background }]} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      {/* Header */}
+      <View style={[styles.header, { backgroundColor: colors.surface, borderBottomColor: colors.border }]}>
+        <View style={[styles.avatarPlaceholder, { backgroundColor: colors.surfaceLight }]}>
+          <Ionicons name="person" size={20} color={colors.primary} />
+        </View>
+        <View style={{ flex: 1, marginLeft: spacing.sm }}>
+          <Text style={[styles.headerTitle, { color: colors.text.primary }]}>{otherUserName}</Text>
+          <View style={styles.onlineIndicator}>
+            <View style={[styles.onlineDot, { backgroundColor: colors.success }]} />
+            <Text style={[styles.onlineText, { color: colors.text.secondary }]}>Online</Text>
+          </View>
         </View>
       </View>
 
-      <ScrollView 
-        ref={scrollViewRef}
-        style={styles.messagesContainer}
-        contentContainerStyle={styles.messagesContent}
-        showsVerticalScrollIndicator={false}
-        onContentSizeChange={scrollToBottom}
-      >
+      {/* Mensagens */}
+      <ScrollView ref={scrollViewRef} style={styles.messagesContainer} contentContainerStyle={styles.messagesContent} showsVerticalScrollIndicator={false} onContentSizeChange={scrollToBottom}>
         {loading ? (
-          <View style={styles.loadingContainer}>
-            <Text style={styles.loadingText}>Carregando mensagens...</Text>
-          </View>
+          <View style={styles.loadingContainer}><Text style={[styles.loadingText, { color: colors.text.secondary }]}>Carregando mensagens...</Text></View>
         ) : messages.length === 0 ? (
           <View style={styles.emptyContainer}>
             <Ionicons name="chatbubble-ellipses-outline" size={48} color={colors.text.light} />
-            <Text style={styles.emptyText}>Nenhuma mensagem ainda.</Text>
-            <Text style={styles.emptySubtext}>Inicie a conversa com {otherUserName}!</Text>
+            <Text style={[styles.emptyText, { color: colors.text.primary }]}>Nenhuma mensagem ainda.</Text>
+            <Text style={[styles.emptySubtext, { color: colors.text.secondary }]}>Inicie a conversa com {otherUserName}!</Text>
           </View>
         ) : (
           messages.map((msg) => {
             const isMe = msg.sender_id === user?.id;
             return (
               <View key={msg.id} style={[styles.messageWrapper, isMe ? styles.myMessageWrapper : styles.otherMessageWrapper]}>
-                <View style={[styles.messageBubble, isMe ? styles.myMessage : styles.otherMessage]}>
-                  <Text style={[styles.messageText, isMe ? styles.myMessageText : styles.otherMessageText]}>
+                <View style={[
+                  styles.messageBubble, 
+                  isMe ? { backgroundColor: colors.primary, borderBottomRightRadius: 4 } : { backgroundColor: colors.surfaceLight, borderBottomLeftRadius: 4, borderWidth: 1, borderColor: colors.border }
+                ]}>
+                  <Text style={[styles.messageText, { color: isMe ? '#FFFFFF' : colors.text.primary }]}>
                     {msg.message}
                   </Text>
-                  <View style={[styles.messageFooter, isMe ? styles.myMessageFooter : styles.otherMessageFooter]}>
-                    <Text style={[styles.messageTime, isMe ? styles.myMessageTime : styles.otherMessageTime]}>
+                  <View style={styles.messageFooter}>
+                    <Text style={[styles.messageTime, { color: isMe ? 'rgba(255,255,255,0.7)' : colors.text.secondary }]}>
                       {formatTime(msg.created_at)}
                     </Text>
                     {isMe && (
-                      <Ionicons 
-                        name={msg.is_read ? 'checkmark-done' : 'checkmark'} 
-                        size={14} 
-                        color={msg.is_read ? '#4FC3F7' : 'rgba(255,255,255,0.6)'} 
-                      />
+                      <Ionicons name={msg.is_read ? 'checkmark-done' : 'checkmark'} size={14} color={msg.is_read ? '#FFFFFF' : 'rgba(255,255,255,0.6)'} style={{ marginLeft: 4 }} />
                     )}
                   </View>
                 </View>
@@ -214,9 +155,10 @@ export default function ChatBox({ taskId, otherUserId, otherUserName }: ChatBoxP
         )}
       </ScrollView>
 
-      <View style={styles.inputContainer}>
+      {/* Input */}
+      <View style={[styles.inputContainer, { backgroundColor: colors.surface, borderTopColor: colors.border }]}>
         <TextInput
-          style={styles.input}
+          style={[styles.input, { backgroundColor: colors.background, color: colors.text.primary, borderColor: colors.border, borderRadius: borderRadius.full }]}
           placeholder="Escreva uma mensagem..."
           placeholderTextColor={colors.text.light}
           value={newMessage}
@@ -226,15 +168,12 @@ export default function ChatBox({ taskId, otherUserId, otherUserName }: ChatBoxP
           onSubmitEditing={handleSendMessage}
         />
         <TouchableOpacity 
-          style={[styles.sendButton, (!newMessage.trim() || sending) && styles.sendButtonDisabled]}
+          style={[styles.sendButton, { backgroundColor: newMessage.trim() && !sending ? colors.primary : colors.surfaceLight }]}
           onPress={handleSendMessage}
           disabled={!newMessage.trim() || sending}
+          activeOpacity={0.7}
         >
-          <Ionicons 
-            name={sending ? 'hourglass-outline' : 'send'} 
-            size={18} 
-            color={newMessage.trim() && !sending ? colors.surface : colors.text.light} 
-          />
+          <Ionicons name={sending ? 'hourglass' : 'send'} size={18} color={newMessage.trim() && !sending ? '#FFFFFF' : colors.text.light} />
         </TouchableOpacity>
       </View>
     </KeyboardAvoidingView>
@@ -242,162 +181,28 @@ export default function ChatBox({ taskId, otherUserId, otherUserName }: ChatBoxP
 }
 
 const styles = StyleSheet.create({
-  container: { 
-    backgroundColor: colors.background,
-    borderRadius: borderRadius.lg,
-    overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  header: { 
-    flexDirection: 'row', 
-    alignItems: 'center', 
-    gap: spacing.sm,
-    padding: spacing.md,
-    backgroundColor: colors.surface,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-  },
-  headerTitle: { 
-    fontSize: fontSize.md, 
-    fontWeight: '700', 
-    color: colors.text.primary,
-    flex: 1,
-  },
-  onlineIndicator: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.xs,
-  },
-  onlineDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: colors.success,
-  },
-  onlineText: {
-    fontSize: fontSize.xs,
-    color: colors.text.secondary,
-  },
-  messagesContainer: { 
-    maxHeight: 400,
-    minHeight: 200,
-  },
-  messagesContent: { 
-    padding: spacing.md,
-    gap: spacing.xs,
-  },
-  loadingContainer: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: spacing.xxl,
-  },
-  loadingText: {
-    fontSize: fontSize.sm,
-    color: colors.text.secondary,
-  },
-  emptyContainer: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: spacing.xxl,
-  },
-  emptyText: {
-    fontSize: fontSize.sm,
-    fontWeight: '600',
-    color: colors.text.primary,
-    marginTop: spacing.md,
-  },
-  emptySubtext: {
-    fontSize: fontSize.xs,
-    color: colors.text.secondary,
-    marginTop: spacing.xs,
-  },
-  messageWrapper: {
-    flexDirection: 'row',
-  },
-  myMessageWrapper: {
-    justifyContent: 'flex-end',
-  },
-  otherMessageWrapper: {
-    justifyContent: 'flex-start',
-  },
-  messageBubble: {
-    maxWidth: '75%',
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    borderRadius: borderRadius.lg,
-  },
-  myMessage: {
-    backgroundColor: colors.primary,
-    borderBottomRightRadius: spacing.xs,
-  },
-  otherMessage: {
-    backgroundColor: colors.surface,
-    borderBottomLeftRadius: spacing.xs,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  messageText: {
-    fontSize: fontSize.sm,
-    lineHeight: 20,
-  },
-  myMessageText: {
-    color: colors.surface,
-  },
-  otherMessageText: {
-    color: colors.text.primary,
-  },
-  messageFooter: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.xs,
-    marginTop: spacing.xs,
-  },
-  myMessageFooter: {
-    justifyContent: 'flex-end',
-  },
-  otherMessageFooter: {
-    justifyContent: 'flex-start',
-  },
-  messageTime: {
-    fontSize: 10,
-  },
-  myMessageTime: {
-    color: 'rgba(255,255,255,0.7)',
-  },
-  otherMessageTime: {
-    color: colors.text.secondary,
-  },
-  inputContainer: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    gap: spacing.sm,
-    padding: spacing.md,
-    backgroundColor: colors.surface,
-    borderTopWidth: 1,
-    borderTopColor: colors.border,
-  },
-  input: {
-    flex: 1,
-    backgroundColor: colors.background,
-    borderRadius: borderRadius.md,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    fontSize: fontSize.sm,
-    maxHeight: 100,
-    borderWidth: 1,
-    borderColor: colors.border,
-    color: colors.text.primary,
-  },
-  sendButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: colors.primary,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  sendButtonDisabled: {
-    backgroundColor: colors.surfaceDark,
-  },
+  container: { flex: 1, borderRadius: 16, overflow: 'hidden' },
+  header: { flexDirection: 'row', alignItems: 'center', padding: 16, borderBottomWidth: 1 },
+  avatarPlaceholder: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
+  headerTitle: { fontSize: 16, fontWeight: '700' },
+  onlineIndicator: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2 },
+  onlineDot: { width: 8, height: 8, borderRadius: 4 },
+  onlineText: { fontSize: 12 },
+  messagesContainer: { flex: 1 },
+  messagesContent: { padding: 16, gap: 12 },
+  loadingContainer: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: 48 },
+  loadingText: { fontSize: 14 },
+  emptyContainer: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: 48 },
+  emptyText: { fontSize: 16, fontWeight: '600', marginTop: 16 },
+  emptySubtext: { fontSize: 14, marginTop: 8 },
+  messageWrapper: { flexDirection: 'row', maxWidth: '85%' },
+  myMessageWrapper: { alignSelf: 'flex-end', justifyContent: 'flex-end' },
+  otherMessageWrapper: { alignSelf: 'flex-start', justifyContent: 'flex-start' },
+  messageBubble: { paddingHorizontal: 16, paddingVertical: 12, borderRadius: 16 },
+  messageText: { fontSize: 15, lineHeight: 22 },
+  messageFooter: { flexDirection: 'row', alignItems: 'center', marginTop: 6, justifyContent: 'flex-end' },
+  messageTime: { fontSize: 11 },
+  inputContainer: { flexDirection: 'row', alignItems: 'flex-end', gap: 12, padding: 16, borderTopWidth: 1 },
+  input: { flex: 1, minHeight: 44, maxHeight: 120, paddingHorizontal: 16, paddingVertical: 10, fontSize: 15, borderWidth: 1 },
+  sendButton: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', marginBottom: 0 },
 });

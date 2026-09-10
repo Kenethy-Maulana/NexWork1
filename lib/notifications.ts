@@ -15,7 +15,8 @@ export type NotificationType =
   | 'offer_accepted'
   | 'offer_rejected'
   | 'new_application'
-  | 'interview_scheduled';
+  | 'interview_scheduled'
+  | 'escrow_reminder'; 
 
 export interface Notification {
   id: string;

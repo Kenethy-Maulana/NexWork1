@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, SafeAreaView, ScrollView, TouchableOpacity, Alert } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { colors, fontSize, spacing, borderRadius } from '../styles/theme';
+import { useTheme } from '../styles/theme';
 import { Button } from '../components/ui/Button';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
@@ -12,6 +12,7 @@ import { WalletService, PaySuiteService } from '../lib/paysuite';
 export default function WalletScreen() {
   const router = useRouter();
   const { user } = useAuth();
+  const { colors, spacing, borderRadius, fontSize } = useTheme();
   
   const [balance, setBalance] = useState(0);
   const [totalEarned, setTotalEarned] = useState(0);
@@ -19,9 +20,7 @@ export default function WalletScreen() {
   const [transactions, setTransactions] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    fetchWalletData();
-  }, []);
+  useEffect(() => { fetchWalletData(); }, []);
 
   const fetchWalletData = async () => {
     if (!user?.id) return;
@@ -42,15 +41,13 @@ export default function WalletScreen() {
     }
   };
 
-  const formatCurrency = (value: number) => {
-    return new Intl.NumberFormat('pt-MZ', { style: 'currency', currency: 'MZN', maximumFractionDigits: 0 }).format(value);
-  };
+  const formatCurrency = (value: number) => new Intl.NumberFormat('pt-MZ', { style: 'currency', currency: 'MZN', maximumFractionDigits: 0 }).format(value);
 
   const getTypeIcon = (type: string) => {
     switch (type) {
       case 'credit': return { name: 'arrow-down' as const, color: colors.success };
       case 'debit': return { name: 'arrow-up' as const, color: colors.error };
-      case 'escrow_hold': return { name: 'lock-closed' as const, color: '#F59E0B' };
+      case 'escrow_hold': return { name: 'lock-closed' as const, color: colors.warning };
       case 'escrow_release': return { name: 'lock-open' as const, color: colors.success };
       case 'refund': return { name: 'return-up-back' as const, color: colors.primary };
       default: return { name: 'swap-horizontal' as const, color: colors.text.secondary };
@@ -68,208 +65,153 @@ export default function WalletScreen() {
     }
   };
 
-  // =========================================================================
-  // AÇÕES: ADICIONAR FUNDOS (COM MÉTODO)
-  // =========================================================================
   const handleAddFunds = async () => {
     const method = window.prompt('Escolha o método:\n1. M-Pesa\n2. e-Mola\n3. mKesh\n4. Transferência Bancária\n(Digite 1, 2, 3 ou 4)');
     if (!method || !['1', '2', '3', '4'].includes(method)) return;
-
-    const methodNames = { '1': 'M-Pesa', '2': 'e-Mola', '3': 'mKesh', '4': 'Banco' };
-    const phoneOrAccount = window.prompt(`Insira o número de ${methodNames[method as keyof typeof methodNames]} ou conta:`);
+    const methodNames: any = { '1': 'M-Pesa', '2': 'e-Mola', '3': 'mKesh', '4': 'Banco' };
+    const phoneOrAccount = window.prompt(`Insira o número de ${methodNames[method]} ou conta:`);
     if (!phoneOrAccount) return;
-
-    const amountStr = window.prompt(`Quanto deseja carregar via ${methodNames[method as keyof typeof methodNames]}? (Ex: 5000)`);
+    const amountStr = window.prompt(`Quanto deseja carregar via ${methodNames[method]}? (Ex: 5000)`);
     if (!amountStr) return;
-
     const amount = parseFloat(amountStr.replace(',', '.'));
-    if (isNaN(amount) || amount <= 0) {
-      alert('Por favor, insira um valor válido.');
-      return;
-    }
+    if (isNaN(amount) || amount <= 0) { Alert.alert('Erro', 'Insira um valor válido.'); return; }
 
-    const result = await PaySuiteService.initiatePayment({
-      amount,
-      currency: 'MZN',
-      method: method === '1' ? 'mpesa' : method === '2' ? 'emola' : method === '3' ? 'mkesh' : 'bank_transfer',
-      phoneNumber: phoneOrAccount,
-      description: `Carregamento de carteira via ${methodNames[method as keyof typeof methodNames]}`,
-      referenceId: `ADD_${Date.now()}`,
-    });
-
+    const result = await PaySuiteService.initiatePayment({ amount, currency: 'MZN', method: method === '1' ? 'mpesa' : method === '2' ? 'emola' : method === '3' ? 'mkesh' : 'bank_transfer', phoneNumber: phoneOrAccount, description: `Carregamento via ${methodNames[method]}`, referenceId: `ADD_${Date.now()}` });
     if (result.success) {
-      await WalletService.creditWallet(user!.id, amount, `Depósito via ${methodNames[method as keyof typeof methodNames]}`);
-      alert('✅ Fundos adicionados com sucesso!');
+      await WalletService.creditWallet(user!.id, amount, `Depósito via ${methodNames[method]}`);
+      Alert.alert('Sucesso!', 'Fundos adicionados com sucesso!');
       fetchWalletData();
     } else {
-      alert('Erro ao processar pagamento: ' + result.message);
+      Alert.alert('Erro', result.message);
     }
   };
 
-  // =========================================================================
-  // AÇÕES: LEVANTAR FUNDOS (NOVO)
-  // =========================================================================
   const handleWithdraw = async () => {
     const amountStr = window.prompt('Qual o valor que deseja levantar? (Ex: 2000)');
     if (!amountStr) return;
-    
     const amount = parseFloat(amountStr.replace(',', '.'));
-    if (isNaN(amount) || amount <= 0) {
-      alert('Por favor, insira um valor válido.');
-      return;
-    }
-
-    if (amount > balance) {
-      alert('Saldo insuficiente para este levantamento.');
-      return;
-    }
-
+    if (isNaN(amount) || amount <= 0) { Alert.alert('Erro', 'Insira um valor válido.'); return; }
+    if (amount > balance) { Alert.alert('Erro', 'Saldo insuficiente.'); return; }
     const destination = window.prompt('Insira o número M-Pesa, e-Mola ou Conta Bancária de destino:');
     if (!destination) return;
+    if (!window.confirm(`Confirmar levantamento de ${formatCurrency(amount)} para ${destination}?`)) return;
 
-    const confirmed = window.confirm(`Confirmar levantamento de ${formatCurrency(amount)} para ${destination}?`);
-    if (!confirmed) return;
-
-    // Simular processamento PaySuite
-    const result = await PaySuiteService.initiatePayment({ // Reutilizando para simular payout
-      amount,
-      currency: 'MZN',
-      method: 'mpesa', // Simplificado para demo
-      phoneNumber: destination,
-      description: 'Levantamento de fundos',
-      referenceId: `WTH_${Date.now()}`,
-    });
-
+    const result = await PaySuiteService.initiatePayment({ amount, currency: 'MZN', method: 'mpesa', phoneNumber: destination, description: 'Levantamento de fundos', referenceId: `WTH_${Date.now()}` });
     if (result.success) {
       const success = await WalletService.debitWallet(user!.id, amount, `Levantamento para ${destination}`);
-      if (success) {
-        alert('✅ Pedido de levantamento enviado com sucesso! O dinheiro cairá em breve.');
-        fetchWalletData();
-      } else {
-        alert('Erro ao debitar saldo.');
-      }
+      if (success) { Alert.alert('Sucesso!', 'Pedido de levantamento enviado!'); fetchWalletData(); }
+      else { Alert.alert('Erro', 'Falha ao debitar saldo.'); }
     } else {
-      alert('Erro ao processar levantamento: ' + result.message);
+      Alert.alert('Erro', result.message);
     }
   };
 
-  // =========================================================================
-  // AÇÕES: TRANSFERIR (P2P)
-  // =========================================================================
   const handleTransfer = async () => {
     const amountStr = window.prompt('Qual o valor da transferência? (Ex: 1000)');
     if (!amountStr) return;
-    
     const amount = parseFloat(amountStr.replace(',', '.'));
-    if (isNaN(amount) || amount <= 0) {
-      alert('Por favor, insira um valor válido.');
-      return;
-    }
-
-    if (amount > balance) {
-      alert('Saldo insuficiente para esta transferência.');
-      return;
-    }
-
+    if (isNaN(amount) || amount <= 0) { Alert.alert('Erro', 'Insira um valor válido.'); return; }
+    if (amount > balance) { Alert.alert('Erro', 'Saldo insuficiente.'); return; }
     const targetId = window.prompt('Insira o ID do utilizador destinatário:');
     if (!targetId) return;
-
-    const confirmed = window.confirm(`Confirmar transferência de ${formatCurrency(amount)} para o utilizador ${targetId}?`);
-    if (!confirmed) return;
+    if (!window.confirm(`Confirmar transferência de ${formatCurrency(amount)} para o utilizador ${targetId}?`)) return;
 
     const success = await WalletService.debitWallet(user!.id, amount, `Transferência para ${targetId}`);
     if (success) {
       await WalletService.creditWallet(targetId, amount, 'Recebimento de transferência');
-      alert('✅ Transferência realizada com sucesso!');
+      Alert.alert('Sucesso!', 'Transferência realizada!');
       fetchWalletData();
     } else {
-      alert('Erro ao realizar transferência.');
+      Alert.alert('Erro', 'Falha na transferência.');
     }
   };
 
   if (loading) {
     return (
-      <SafeAreaView style={styles.container}>
-        <View style={styles.loadingContainer}><Text>Carregando carteira...</Text></View>
+      <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
+        <View style={styles.loadingContainer}><Text style={{ color: colors.text.secondary }}>Carregando carteira...</Text></View>
       </SafeAreaView>
     );
   }
 
   return (
-    <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
+      <View style={[styles.header, { backgroundColor: colors.surface, borderBottomColor: colors.border }]}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
           <Ionicons name="arrow-back" size={24} color={colors.text.primary} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Minha Carteira</Text>
+        <Text style={[styles.headerTitle, { color: colors.text.primary }]}>Minha Carteira</Text>
         <View style={styles.headerSpacer} />
       </View>
 
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        <View style={styles.balanceCard}>
+        {/* Cartão de Saldo Premium */}
+        <View style={[styles.balanceCard, { backgroundColor: colors.primary }]}>
           <Text style={styles.balanceLabel}>Saldo Disponível</Text>
           <Text style={styles.balanceAmount}>{formatCurrency(balance)}</Text>
           <View style={styles.balanceRow}>
             <View style={styles.balanceItem}>
-              <Ionicons name="trending-up" size={16} color={colors.success} />
+              <Ionicons name="trending-up" size={16} color="#FFFFFF" />
               <Text style={styles.balanceItemLabel}>Recebido</Text>
-              <Text style={[styles.balanceItemValue, { color: colors.success }]}>{formatCurrency(totalEarned)}</Text>
+              <Text style={styles.balanceItemValue}>{formatCurrency(totalEarned)}</Text>
             </View>
             <View style={styles.balanceDivider} />
             <View style={styles.balanceItem}>
-              <Ionicons name="trending-down" size={16} color={colors.error} />
+              <Ionicons name="trending-down" size={16} color="#FFFFFF" />
               <Text style={styles.balanceItemLabel}>Gasto</Text>
-              <Text style={[styles.balanceItemValue, { color: colors.error }]}>{formatCurrency(totalSpent)}</Text>
+              <Text style={styles.balanceItemValue}>{formatCurrency(totalSpent)}</Text>
             </View>
           </View>
         </View>
 
-        {/* Botões de Ação ATUALIZADOS */}
+        {/* Botões de Ação */}
         <View style={styles.actionsRow}>
-          <TouchableOpacity style={styles.actionButton} onPress={handleAddFunds}>
-            <Ionicons name="add-circle-outline" size={24} color={colors.success} />
-            <Text style={styles.actionButtonText}>Adicionar</Text>
+          <TouchableOpacity style={[styles.actionButton, { backgroundColor: colors.surface, borderColor: colors.border }]} onPress={handleAddFunds} activeOpacity={0.7}>
+            <Ionicons name="add-circle" size={22} color={colors.success} />
+            <Text style={[styles.actionButtonText, { color: colors.text.primary }]}>Adicionar</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.actionButton} onPress={handleWithdraw}>
-            <Ionicons name="download-outline" size={24} color={colors.primary} />
-            <Text style={styles.actionButtonText}>Levantar</Text>
+          <TouchableOpacity style={[styles.actionButton, { backgroundColor: colors.surface, borderColor: colors.border }]} onPress={handleWithdraw} activeOpacity={0.7}>
+            <Ionicons name="download" size={22} color={colors.primary} />
+            <Text style={[styles.actionButtonText, { color: colors.text.primary }]}>Levantar</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.actionButton} onPress={handleTransfer}>
-            <Ionicons name="send-outline" size={24} color={colors.text.primary} />
-            <Text style={styles.actionButtonText}>Transferir</Text>
+          <TouchableOpacity style={[styles.actionButton, { backgroundColor: colors.surface, borderColor: colors.border }]} onPress={handleTransfer} activeOpacity={0.7}>
+            <Ionicons name="send" size={22} color={colors.text.primary} />
+            <Text style={[styles.actionButtonText, { color: colors.text.primary }]}>Transferir</Text>
           </TouchableOpacity>
         </View>
 
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Métodos de Pagamento</Text>
+        <View style={[styles.section, { backgroundColor: colors.surface }]}>
+          <Text style={[styles.sectionTitle, { color: colors.text.primary }]}>Métodos de Pagamento</Text>
           <View style={styles.methodsRow}>
-            <View style={styles.methodChip}><Text style={styles.methodIcon}>📱</Text><Text style={styles.methodText}>M-Pesa</Text></View>
-            <View style={styles.methodChip}><Text style={styles.methodIcon}>📱</Text><Text style={styles.methodText}>e-Mola</Text></View>
-            <View style={styles.methodChip}><Text style={styles.methodIcon}>📱</Text><Text style={styles.methodText}>mKesh</Text></View>
-            <View style={styles.methodChip}><Text style={styles.methodIcon}>🏦</Text><Text style={styles.methodText}>Banco</Text></View>
+            {['M-Pesa', 'e-Mola', 'mKesh', 'Banco'].map((m, i) => (
+              <View key={i} style={[styles.methodChip, { backgroundColor: colors.background, borderColor: colors.border }]}>
+                <Text style={styles.methodIcon}>{i === 3 ? '🏦' : '📱'}</Text>
+                <Text style={[styles.methodText, { color: colors.text.primary }]}>{m}</Text>
+              </View>
+            ))}
           </View>
-          <Text style={styles.poweredBy}>Powered by PaySuite (Modo Sandbox)</Text>
+          <Text style={[styles.poweredBy, { color: colors.text.light }]}>Powered by PaySuite (Modo Sandbox)</Text>
         </View>
 
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Histórico de Transações</Text>
+        <View style={[styles.section, { backgroundColor: colors.surface }]}>
+          <Text style={[styles.sectionTitle, { color: colors.text.primary }]}>Histórico de Transações</Text>
           {transactions.length === 0 ? (
             <View style={styles.emptyTx}>
               <Ionicons name="receipt-outline" size={48} color={colors.text.light} />
-              <Text style={styles.emptyTxText}>Nenhuma transação ainda</Text>
+              <Text style={[styles.emptyTxText, { color: colors.text.secondary }]}>Nenhuma transação ainda</Text>
             </View>
           ) : (
             transactions.map((tx) => {
               const icon = getTypeIcon(tx.type);
               const isCredit = tx.type === 'credit' || tx.type === 'escrow_release' || tx.type === 'refund';
               return (
-                <View key={tx.id} style={styles.txRow}>
+                <View key={tx.id} style={[styles.txRow, { borderBottomColor: colors.border }]}>
                   <View style={[styles.txIcon, { backgroundColor: icon.color + '20' }]}>
                     <Ionicons name={icon.name} size={20} color={icon.color} />
                   </View>
                   <View style={{ flex: 1 }}>
-                    <Text style={styles.txDescription}>{tx.description || getTypeLabel(tx.type)}</Text>
-                    <Text style={styles.txDate}>
+                    <Text style={[styles.txDescription, { color: colors.text.primary }]}>{tx.description || getTypeLabel(tx.type)}</Text>
+                    <Text style={[styles.txDate, { color: colors.text.secondary }]}>
                       {new Date(tx.created_at).toLocaleDateString('pt-MZ', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
                     </Text>
                   </View>
@@ -287,36 +229,36 @@ export default function WalletScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.background },
+  container: { flex: 1 },
   loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: spacing.lg, paddingVertical: spacing.md, backgroundColor: colors.surface, borderBottomWidth: 1, borderBottomColor: colors.border },
-  backButton: { padding: spacing.xs },
-  headerTitle: { fontSize: fontSize.lg, fontWeight: '700', color: colors.text.primary },
-  headerSpacer: { width: 40 },
-  scrollContent: { padding: spacing.lg, paddingBottom: spacing.xxl },
-  balanceCard: { backgroundColor: colors.primary, borderRadius: borderRadius.lg, padding: spacing.xl, marginBottom: spacing.lg, alignItems: 'center' },
-  balanceLabel: { fontSize: fontSize.sm, color: 'rgba(255,255,255,0.8)', marginBottom: spacing.xs },
-  balanceAmount: { fontSize: 36, fontWeight: '800', color: colors.surface, marginBottom: spacing.lg },
+  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingVertical: 16, borderBottomWidth: 1 },
+  backButton: { padding: 4 },
+  headerTitle: { fontSize: 18, fontWeight: '700' },
+  headerSpacer: { width: 32 },
+  scrollContent: { padding: 20, paddingBottom: 40 },
+  balanceCard: { borderRadius: 20, padding: 24, marginBottom: 20, shadowColor: '#3B82F6', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.3, shadowRadius: 16, elevation: 8 },
+  balanceLabel: { fontSize: 14, color: 'rgba(255,255,255,0.8)', marginBottom: 4, fontWeight: '500' },
+  balanceAmount: { fontSize: 36, fontWeight: '800', color: '#FFFFFF', marginBottom: 20, letterSpacing: -1 },
   balanceRow: { flexDirection: 'row', alignItems: 'center', width: '100%', justifyContent: 'center' },
   balanceItem: { alignItems: 'center', flex: 1 },
-  balanceItemLabel: { fontSize: fontSize.xs, color: 'rgba(255,255,255,0.7)', marginTop: spacing.xs },
-  balanceItemValue: { fontSize: fontSize.md, fontWeight: '700', marginTop: spacing.xs },
+  balanceItemLabel: { fontSize: 12, color: 'rgba(255,255,255,0.7)', marginTop: 4 },
+  balanceItemValue: { fontSize: 16, fontWeight: '700', color: '#FFFFFF', marginTop: 4 },
   balanceDivider: { width: 1, height: 40, backgroundColor: 'rgba(255,255,255,0.3)' },
-  actionsRow: { flexDirection: 'row', gap: spacing.md, marginBottom: spacing.lg },
-  actionButton: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.xs, backgroundColor: colors.surface, paddingVertical: spacing.md, borderRadius: borderRadius.md, borderWidth: 1, borderColor: colors.border },
-  actionButtonText: { fontSize: fontSize.sm, fontWeight: '600', color: colors.text.primary },
-  section: { marginBottom: spacing.lg },
-  sectionTitle: { fontSize: fontSize.lg, fontWeight: '700', color: colors.text.primary, marginBottom: spacing.md },
-  methodsRow: { flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.sm },
-  methodChip: { flex: 1, alignItems: 'center', padding: spacing.sm, backgroundColor: colors.surface, borderRadius: borderRadius.md, borderWidth: 1, borderColor: colors.border },
-  methodIcon: { fontSize: 20 },
-  methodText: { fontSize: fontSize.xs, color: colors.text.primary, fontWeight: '600', marginTop: spacing.xs },
-  poweredBy: { fontSize: fontSize.xs, color: colors.text.light, textAlign: 'center', fontStyle: 'italic' },
-  emptyTx: { alignItems: 'center', paddingVertical: spacing.xxl },
-  emptyTxText: { fontSize: fontSize.md, color: colors.text.secondary, marginTop: spacing.md },
-  txRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, paddingVertical: spacing.md, borderBottomWidth: 1, borderBottomColor: colors.border },
+  actionsRow: { flexDirection: 'row', gap: 12, marginBottom: 24 },
+  actionButton: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 14, borderRadius: 16, borderWidth: 1 },
+  actionButtonText: { fontSize: 14, fontWeight: '600' },
+  section: { padding: 20, borderRadius: 16, marginBottom: 20 },
+  sectionTitle: { fontSize: 18, fontWeight: '700', marginBottom: 16 },
+  methodsRow: { flexDirection: 'row', gap: 10, marginBottom: 12 },
+  methodChip: { flex: 1, alignItems: 'center', padding: 12, borderRadius: 12, borderWidth: 1 },
+  methodIcon: { fontSize: 20, marginBottom: 4 },
+  methodText: { fontSize: 12, fontWeight: '600' },
+  poweredBy: { fontSize: 12, textAlign: 'center', fontStyle: 'italic', marginTop: 8 },
+  emptyTx: { alignItems: 'center', paddingVertical: 40 },
+  emptyTxText: { fontSize: 15, marginTop: 12 },
+  txRow: { flexDirection: 'row', alignItems: 'center', gap: 14, paddingVertical: 14, borderBottomWidth: 1 },
   txIcon: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
-  txDescription: { fontSize: fontSize.sm, fontWeight: '600', color: colors.text.primary },
-  txDate: { fontSize: fontSize.xs, color: colors.text.secondary, marginTop: spacing.xs },
-  txAmount: { fontSize: fontSize.md, fontWeight: '700' },
+  txDescription: { fontSize: 15, fontWeight: '600' },
+  txDate: { fontSize: 12, marginTop: 4 },
+  txAmount: { fontSize: 16, fontWeight: '700' },
 });

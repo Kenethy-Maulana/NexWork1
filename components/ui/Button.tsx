@@ -1,65 +1,118 @@
+// components/ui/Button.tsx
 import React from 'react';
-import { TouchableOpacity, Text, StyleSheet, ActivityIndicator, ViewStyle, TextStyle } from 'react-native';
-import { colors, borderRadius, fontSize, fontWeight, spacing } from '../../styles/theme';
-import { LinearGradient } from 'expo-linear-gradient';
+import { 
+  TouchableOpacity, 
+  Text, 
+  StyleSheet, 
+  ActivityIndicator, 
+  View,
+  ViewStyle, 
+  TextStyle 
+} from 'react-native';
+import { useTheme } from '../../styles/theme';
 
 interface ButtonProps {
   title: string;
   onPress: () => void;
   variant?: 'primary' | 'secondary' | 'outline' | 'ghost';
   size?: 'small' | 'medium' | 'large';
+  fullWidth?: boolean;
   loading?: boolean;
   disabled?: boolean;
-  fullWidth?: boolean;
-  style?: ViewStyle;
-  textStyle?: TextStyle;
+  icon?: React.ReactNode;
 }
 
-export const Button: React.FC<ButtonProps> = ({ title, onPress, variant = 'primary', size = 'medium', loading = false, disabled = false, fullWidth = false, style, textStyle }) => {
-  const buttonStyles = [styles.button, styles[`${variant}Button`], styles[`${size}Button`], fullWidth && styles.fullWidth, disabled && styles.disabled, style];
-  const textStyles = [styles.text, styles[`${variant}Text`], styles[`${size}Text`], disabled && styles.disabledText, textStyle];
+export const Button: React.FC<ButtonProps> = ({
+  title,
+  onPress,
+  variant = 'primary',
+  size = 'medium',
+  fullWidth = false,
+  loading = false,
+  disabled = false,
+  icon,
+}) => {
+  // Agora o botão reage automaticamente ao tema Claro/Escuro
+  const { colors, spacing, borderRadius, fontSize, fontWeight } = useTheme();
 
-  const renderContent = () => {
-    if (loading) return <ActivityIndicator color={variant === 'outline' ? colors.primary : colors.surface} size="small" />;
-    return <Text style={textStyles}>{title}</Text>;
+  // Lógica dinâmica para o estilo do botão
+  const getButtonStyle = (): ViewStyle => {
+    const baseStyle: ViewStyle = {
+      borderRadius: borderRadius.lg,
+      alignItems: 'center',
+      justifyContent: 'center',
+      flexDirection: 'row',
+      opacity: disabled || loading ? 0.7 : 1,
+    };
+
+    if (fullWidth) baseStyle.width = '100%';
+
+    // Tamanhos
+    if (size === 'small') {
+      baseStyle.paddingVertical = spacing.sm;
+      baseStyle.paddingHorizontal = spacing.md;
+    } else if (size === 'large') {
+      baseStyle.paddingVertical = spacing.lg;
+      baseStyle.paddingHorizontal = spacing.xl;
+    } else {
+      baseStyle.paddingVertical = spacing.md;
+      baseStyle.paddingHorizontal = spacing.lg;
+    }
+
+    // Variantes de Cor
+    if (variant === 'primary') {
+      baseStyle.backgroundColor = colors.primary;
+      baseStyle.shadowColor = colors.primary;
+      baseStyle.shadowOffset = { width: 0, height: 8 };
+      baseStyle.shadowOpacity = 0.3;
+      baseStyle.shadowRadius = 16;
+      baseStyle.elevation = 8;
+    } else if (variant === 'secondary') {
+      baseStyle.backgroundColor = colors.surfaceLight;
+    } else if (variant === 'outline') {
+      baseStyle.backgroundColor = 'transparent';
+      baseStyle.borderWidth = 1.5;
+      baseStyle.borderColor = colors.primary;
+    } else if (variant === 'ghost') {
+      baseStyle.backgroundColor = 'transparent';
+    }
+
+    return baseStyle;
   };
 
-  if (variant === 'primary') {
-    return (
-      <TouchableOpacity onPress={onPress} disabled={disabled || loading} style={buttonStyles} activeOpacity={0.8}>
-        <LinearGradient colors={[colors.primary, colors.primaryDark]} style={[styles.gradient, fullWidth && styles.fullWidth]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}>
-          {renderContent()}
-        </LinearGradient>
-      </TouchableOpacity>
-    );
-  }
+  // Lógica dinâmica para o estilo do texto
+  const getTextStyle = (): TextStyle => {
+    const baseText: TextStyle = {
+      fontWeight: fontWeight.semibold as any,
+      textAlign: 'center',
+    };
+
+    if (size === 'small') baseText.fontSize = fontSize.sm;
+    else if (size === 'large') baseText.fontSize = fontSize.lg;
+    else baseText.fontSize = fontSize.md;
+
+    if (variant === 'primary') baseText.color = colors.text.inverse;
+    else if (variant === 'outline' || variant === 'ghost') baseText.color = colors.primary;
+    else baseText.color = colors.text.primary;
+
+    return baseText;
+  };
 
   return (
-    <TouchableOpacity onPress={onPress} disabled={disabled || loading} style={buttonStyles} activeOpacity={0.8}>
-      {renderContent()}
+    <TouchableOpacity
+      style={getButtonStyle()}
+      onPress={onPress}
+      disabled={disabled || loading}
+      activeOpacity={0.8}
+    >
+      {loading ? (
+        <ActivityIndicator color={variant === 'primary' ? colors.text.inverse : colors.primary} />
+      ) : (
+        <>
+          {icon && <View style={{ marginRight: spacing.sm }}>{icon}</View>}
+          <Text style={getTextStyle()}>{title}</Text>
+        </>
+      )}
     </TouchableOpacity>
   );
 };
-
-const styles = StyleSheet.create({
-  button: { borderRadius: borderRadius.lg, alignItems: 'center', justifyContent: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 4, elevation: 3 },
-  gradient: { borderRadius: borderRadius.lg, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', paddingVertical: spacing.md, paddingHorizontal: spacing.lg },
-  fullWidth: { width: '100%' },
-  primaryButton: {},
-  secondaryButton: { backgroundColor: colors.secondary, paddingVertical: spacing.md, paddingHorizontal: spacing.lg },
-  outlineButton: { backgroundColor: 'transparent', borderWidth: 2, borderColor: colors.primary, paddingVertical: spacing.md - 2, paddingHorizontal: spacing.lg },
-  ghostButton: { backgroundColor: 'transparent', shadowOpacity: 0, elevation: 0, paddingVertical: spacing.md, paddingHorizontal: spacing.lg },
-  smallButton: { paddingVertical: spacing.sm, paddingHorizontal: spacing.md },
-  mediumButton: { paddingVertical: spacing.md, paddingHorizontal: spacing.lg },
-  largeButton: { paddingVertical: spacing.lg, paddingHorizontal: spacing.xl },
-  disabled: { opacity: 0.5 },
-  text: { fontWeight: fontWeight.semibold as any, textAlign: 'center' },
-  primaryText: { color: colors.surface },
-  secondaryText: { color: colors.surface },
-  outlineText: { color: colors.primary },
-  ghostText: { color: colors.primary },
-  disabledText: { color: colors.text.light },
-  smallText: { fontSize: fontSize.sm },
-  mediumText: { fontSize: fontSize.md },
-  largeText: { fontSize: fontSize.lg },
-});

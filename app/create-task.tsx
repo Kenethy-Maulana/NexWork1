@@ -1,12 +1,14 @@
 // app/create-task.tsx
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, SafeAreaView, ScrollView, TouchableOpacity, Alert, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, SafeAreaView, ScrollView, TouchableOpacity, Alert, ActivityIndicator, Switch } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
-import { colors, fontSize, spacing, borderRadius } from '../styles/theme';
+import { useTheme } from '../styles/theme';
 import { Input } from '../components/ui/Input';
 import { Button } from '../components/ui/Button';
+import { Calendar } from '../components/ui/Calendar';
+import { SuccessModal } from '../components/ui/SuccessModal'; // ✅ ADICIONADO
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
 
@@ -20,176 +22,138 @@ const CATEGORIES = [
   { id: 'outros', label: 'Outros', icon: 'construct-outline' },
 ];
 
+const FREQUENCIES = [
+  { id: 'daily', label: 'Diário' },
+  { id: 'weekly', label: 'Semanal' },
+  { id: 'monthly', label: 'Mensal' },
+];
+
 export default function CreateTaskScreen() {
   const router = useRouter();
   const { user } = useAuth();
+  const { colors, borderRadius } = useTheme();
   
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [category, setCategory] = useState('');
-  const [location, setLocation] = useState('');
+  
+  const [locationName, setLocationName] = useState(''); 
+  const [coords, setCoords] = useState<{ lat: number | null, lng: number | null }>({ lat: null, lng: null });
   const [budget, setBudget] = useState('');
+  
+  const [isRecurring, setIsRecurring] = useState(false);
+  const [recurrenceInterval, setRecurrenceInterval] = useState<'daily' | 'weekly' | 'monthly'>('weekly');
+  const [endDate, setEndDate] = useState('');
+  const [showCalendar, setShowCalendar] = useState(false);
+
   const [loading, setLoading] = useState(false);
   const [gettingLocation, setGettingLocation] = useState(false);
+  const [showSuccess, setShowSuccess] = useState(false); // ✅ ADICIONADO
 
-  // 🗺️ FUNÇÃO PARA GEOCODIFICAR ENDEREÇO EM COORDENADAS
-  const geocodeAddress = async (address: string): Promise<{ lat: number; lng: number } | null> => {
-    try {
-      const response = await fetch(
-        `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(address)}&limit=1`
-      );
-      const data = await response.json();
-      
-      if (data && data.length > 0) {
-        return {
-          lat: parseFloat(data[0].lat),
-          lng: parseFloat(data[0].lon),
-        };
-      }
-      return null;
-    } catch (error) {
-      console.error('Erro ao geocodificar endereço:', error);
-      return null;
-    }
-  };
-
-  // 📍 FUNÇÃO PARA PEGAR LOCALIZAÇÃO ATUAL DO GPS
   const getCurrentLocation = async () => {
     setGettingLocation(true);
-    
     try {
-      // Pedir permissão
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== 'granted') {
-        Alert.alert('Permissão Negada', 'É necessário permitir o acesso à localização para usar esta função.');
+        Alert.alert('Permissão Negada', 'É necessário permitir o acesso à localização.');
         return;
       }
 
-      // Pegar localização atual
-      const currentLocation = await Location.getCurrentPositionAsync({
-        accuracy: Location.Accuracy.High,
-      });
-
+      const currentLocation = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
       const { latitude, longitude } = currentLocation.coords;
-      console.log('📍 Localização GPS:', latitude, longitude);
 
-      // Geocodificação reversa: coordenadas → endereço
+      setCoords({ lat: latitude, lng: longitude });
+
       const reverseGeocode = await Location.reverseGeocodeAsync({ latitude, longitude });
-      
       if (reverseGeocode.length > 0) {
-        const address = reverseGeocode[0];
-        const formattedAddress = `${address.street || ''}, ${address.district || address.city || ''}`.trim();
-        setLocation(formattedAddress || `${latitude}, ${longitude}`);
-        Alert.alert('✅ Localização Encontrada', `Endereço: ${formattedAddress || 'Coordenadas capturadas'}`);
+        const addr = reverseGeocode[0];
+        const friendlyAddress = `${addr.street || ''}, ${addr.city || addr.district || 'Moçambique'}`.replace(/^,\s*/, '');
+        setLocationName(friendlyAddress);
       } else {
-        setLocation(`${latitude.toFixed(6)}, ${longitude.toFixed(6)}`);
+        setLocationName('Toque aqui para escrever o endereço manualmente');
+        Alert.alert('📍 Localização Capturada', 'O nome exato da rua não foi encontrado. Podes editar o campo manualmente.');
       }
-    } catch (error: any) {
+    } catch (error) {
       console.error('Erro ao pegar localização:', error);
-      Alert.alert('Erro', 'Não foi possível obter sua localização. Verifique se o GPS está ativado.');
+      Alert.alert('Erro', 'Não foi possível obter a localização. Escreve o endereço manualmente.');
+      setLocationName(''); 
     } finally {
       setGettingLocation(false);
     }
   };
 
   const handleCreateTask = async () => {
-    if (!title || !description || !category || !location || !budget) {
-      alert('Por favor, preencha todos os campos.');
+    if (!title || !description || !category || !locationName || !budget) {
+      Alert.alert('Atenção', 'Por favor, preencha todos os campos obrigatórios.');
       return;
     }
-
+    if (isRecurring && !endDate) {
+      Alert.alert('Atenção', 'Por favor, seleciona uma data de término para a recorrência.');
+      return;
+    }
     if (!user) {
-      alert('Você precisa estar logado para criar uma tarefa.');
+      Alert.alert('Atenção', 'Precisa de estar autenticado.');
       return;
     }
 
     setLoading(true);
-
     try {
-      // 1. Buscar coordenadas da localização
-      console.log('📍 A buscar coordenadas para:', location);
-      const coords = await geocodeAddress(location);
-      
-      let latitude = null;
-      let longitude = null;
-      let locationName = location;
-
-      if (coords) {
-        latitude = coords.lat;
-        longitude = coords.lng;
-        console.log('✅ Coordenadas encontradas:', latitude, longitude);
-      } else {
-        console.warn('⚠️ Não foi possível geocodificar. Usando coordenadas padrão de Maputo.');
-        latitude = -25.9655;
-        longitude = 32.5832;
-      }
-
-      // 2. Inserir tarefa com as coordenadas
       const { error } = await supabase.from('tasks').insert({
         client_id: user.id,
         title,
         description,
         category,
-        location,
+        location: locationName,
         location_name: locationName,
         budget: parseFloat(budget.replace(',', '.')),
         status: 'open',
-        latitude,
-        longitude,
+        latitude: coords.lat,
+        longitude: coords.lng,
+        is_recurring: isRecurring,
+        recurrence_interval: isRecurring ? recurrenceInterval : null,
+        end_date: isRecurring ? endDate : null,
       });
 
-      setLoading(false);
+      if (error) throw error;
 
-      if (error) {
-        console.error('Erro ao criar tarefa:', error);
-        alert('Não foi possível criar a tarefa. Tente novamente.');
-      } else {
-        alert('✅ Tarefa criada com sucesso!');
-        router.replace('/(tabs)');
-      }
+      // ✅ SUBSTITUIU O ALERT PELO MODAL
+      setShowSuccess(true);
+      
     } catch (err: any) {
+      console.error('Erro ao criar tarefa:', err);
+      Alert.alert('Erro', err.message || 'Não foi possível criar a tarefa.');
+    } finally {
       setLoading(false);
-      console.error('Erro inesperado:', err);
-      alert('Erro: ' + err.message);
     }
   };
 
   return (
-    <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
+      <View style={[styles.header, { backgroundColor: colors.surface, borderBottomColor: colors.border }]}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
           <Ionicons name="arrow-back" size={24} color={colors.text.primary} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Nova Tarefa</Text>
+        <Text style={[styles.headerTitle, { color: colors.text.primary }]}>Nova Tarefa</Text>
         <View style={styles.headerSpacer} />
       </View>
 
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         <View style={styles.form}>
-          <Input 
-            label="Título da Tarefa" 
-            placeholder="Ex: Instalar 3 tomadas na sala" 
-            value={title} 
-            onChangeText={setTitle} 
-            icon="document-text-outline" 
-          />
-
-          <Text style={styles.label}>Categoria do Serviço</Text>
+          <Input label="Título da Tarefa *" placeholder="Ex: Instalar 3 tomadas na sala" value={title} onChangeText={setTitle} icon="document-text-outline" />
+          
+          <Text style={[styles.label, { color: colors.text.primary }]}>Categoria do Serviço *</Text>
           <View style={styles.categoriesContainer}>
             {CATEGORIES.map((cat) => {
               const isActive = category === cat.id;
               return (
                 <TouchableOpacity
                   key={cat.id}
-                  style={[styles.categoryChip, isActive && styles.categoryChipActive]}
+                  style={[styles.categoryChip, { backgroundColor: isActive ? colors.primary : colors.surface, borderColor: isActive ? colors.primary : colors.border }]}
                   onPress={() => setCategory(cat.id)}
+                  activeOpacity={0.7}
                 >
-                  <Ionicons 
-                    name={cat.icon as any} 
-                    size={18} 
-                    color={isActive ? colors.surface : colors.text.secondary} 
-                  />
-                  <Text style={[styles.categoryText, isActive && styles.categoryTextActive]}>
+                  <Ionicons name={cat.icon as any} size={18} color={isActive ? '#FFFFFF' : colors.text.secondary} />
+                  <Text style={[styles.categoryText, { color: isActive ? '#FFFFFF' : colors.text.secondary, fontWeight: isActive ? '600' : '500' }]}>
                     {cat.label}
                   </Text>
                 </TouchableOpacity>
@@ -197,150 +161,118 @@ export default function CreateTaskScreen() {
             })}
           </View>
 
-          <Input 
-            label="Descrição Detalhada" 
-            placeholder="Descreva o que precisa ser feito, materiais inclusos, etc." 
-            value={description} 
-            onChangeText={setDescription} 
-            icon="text-outline" 
-            multiline={true}
-            numberOfLines={4}
-          />
+          <Input label="Descrição Detalhada *" placeholder="Descreva o que precisa ser feito..." value={description} onChangeText={setDescription} icon="text-outline" multiline numberOfLines={4} />
 
-          {/* 📍 CAMPO DE LOCALIZAÇÃO COM BOTÃO GPS */}
           <View>
-            <Text style={styles.label}>Localização da Tarefa</Text>
+            <Text style={[styles.label, { color: colors.text.primary }]}>Localização da Tarefa *</Text>
             <View style={styles.locationContainer}>
-              <View style={styles.locationInputWrapper}>
-                <Ionicons name="location-outline" size={20} color={colors.text.secondary} style={styles.inputIcon} />
-                <Input 
-                  placeholder="Ex: Maputo, Bairro Polana" 
-                  value={location} 
-                  onChangeText={setLocation} 
-                  style={styles.locationInput}
-                />
+              <View style={{ flex: 1 }}>
+                <Input placeholder="Localização" value={locationName} onChangeText={setLocationName} icon="location-outline" />
               </View>
-              <TouchableOpacity 
-                style={[styles.gpsButton, gettingLocation && styles.gpsButtonDisabled]}
-                onPress={getCurrentLocation}
-                disabled={gettingLocation}
-              >
-                {gettingLocation ? (
-                  <ActivityIndicator size="small" color={colors.surface} />
-                ) : (
-                  <Ionicons name="navigate" size={20} color={colors.surface} />
-                )}
+              <TouchableOpacity style={[styles.gpsButton, { backgroundColor: gettingLocation ? colors.text.light : colors.primary }]} onPress={getCurrentLocation} disabled={gettingLocation} activeOpacity={0.7}>
+                {gettingLocation ? <ActivityIndicator size="small" color="#FFFFFF" /> : <Ionicons name="navigate" size={20} color="#FFFFFF" />}
               </TouchableOpacity>
             </View>
-            <Text style={styles.locationHint}>
-               Clique no botão 📍 para usar sua localização atual
-            </Text>
           </View>
 
-          <Input 
-            label="Orçamento Previsto (MT)" 
-            placeholder="Ex: 2500" 
-            value={budget} 
-            onChangeText={setBudget} 
-            icon="cash-outline" 
-            keyboardType="numeric" 
-          />
+          <Input label="Orçamento Previsto (MT) *" placeholder="Ex: 2500" value={budget} onChangeText={setBudget} icon="cash-outline" keyboardType="numeric" />
+
+          <View style={[styles.recurringSection, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+            <View style={styles.recurringHeader}>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.recurringTitle, { color: colors.text.primary }]}>Tarefa Recorrente?</Text>
+                <Text style={[styles.recurringSubtitle, { color: colors.text.secondary }]}>Ex: Limpeza semanal, jardinagem mensal.</Text>
+              </View>
+              <Switch
+                value={isRecurring}
+                onValueChange={setIsRecurring}
+                trackColor={{ false: colors.border, true: colors.primary + '60' }}
+                thumbColor={isRecurring ? colors.primary : '#f4f3f4'}
+              />
+            </View>
+
+            {isRecurring && (
+              <View style={styles.recurringOptions}>
+                <Text style={[styles.label, { color: colors.text.primary, marginBottom: 8 }]}>Frequência</Text>
+                <View style={styles.freqRow}>
+                  {FREQUENCIES.map((freq) => {
+                    const isActive = recurrenceInterval === freq.id;
+                    return (
+                      <TouchableOpacity
+                        key={freq.id}
+                        style={[styles.freqChip, { backgroundColor: isActive ? colors.primary : colors.surfaceLight, borderColor: isActive ? colors.primary : colors.border }]}
+                        onPress={() => setRecurrenceInterval(freq.id as any)}
+                      >
+                        <Text style={[styles.freqText, { color: isActive ? '#FFFFFF' : colors.text.secondary }]}>
+                          {freq.label}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+
+                <Text style={[styles.label, { color: colors.text.primary, marginTop: 16, marginBottom: 8 }]}>Data de Término da Recorrência *</Text>
+                <TouchableOpacity style={[styles.dateButton, { backgroundColor: colors.surfaceLight, borderColor: colors.border }]} onPress={() => setShowCalendar(!showCalendar)}>
+                  <Ionicons name="calendar-outline" size={20} color={colors.primary} />
+                  <Text style={[styles.dateText, { color: endDate ? colors.text.primary : colors.text.light }]}>
+                    {endDate ? new Date(endDate).toLocaleDateString('pt-MZ') : 'Selecionar data de fim'}
+                  </Text>
+                </TouchableOpacity>
+                
+                {showCalendar && (
+                  <View style={styles.calendarContainer}>
+                    <Calendar selectedDate={endDate} onDateSelect={(date) => { setEndDate(date); setShowCalendar(false); }} minDate={new Date().toISOString().split('T')[0]} />
+                  </View>
+                )}
+              </View>
+            )}
+          </View>
 
           <View style={styles.buttonContainer}>
-            <Button 
-              title="Publicar Tarefa" 
-              onPress={handleCreateTask} 
-              variant="primary" 
-              size="large" 
-              fullWidth={true}
-              loading={loading}
-            />
+            <Button title={isRecurring ? "Configurar Tarefa Recorrente" : "Publicar Tarefa"} onPress={handleCreateTask} variant="primary" size="large" fullWidth loading={loading} />
           </View>
         </View>
       </ScrollView>
+
+      {/* ✅ MODAL DE SUCESSO */}
+      <SuccessModal 
+        visible={showSuccess} 
+        title="Sucesso! 🎉" 
+        message={isRecurring ? 'Tarefa recorrente configurada com sucesso!' : 'Tarefa criada com sucesso!'}
+        onClose={() => {
+          setShowSuccess(false);
+          router.replace('/(tabs)');
+        }} 
+      />
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.background },
-  header: { 
-    flexDirection: 'row', 
-    alignItems: 'center', 
-    justifyContent: 'space-between', 
-    paddingHorizontal: spacing.lg, 
-    paddingVertical: spacing.md,
-    backgroundColor: colors.surface,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-  },
-  backButton: { padding: spacing.xs },
-  headerTitle: { fontSize: fontSize.lg, fontWeight: '700', color: colors.text.primary },
-  headerSpacer: { width: 40 },
-  scrollContent: { padding: spacing.lg, paddingBottom: spacing.xxl },
-  form: { gap: spacing.lg },
-  label: { fontSize: fontSize.sm, fontWeight: '600', color: colors.text.primary, marginBottom: spacing.xs },
-  categoriesContainer: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginBottom: spacing.sm },
-  categoryChip: { 
-    flexDirection: 'row', 
-    alignItems: 'center', 
-    paddingHorizontal: spacing.md, 
-    paddingVertical: spacing.sm, 
-    borderRadius: borderRadius.full, 
-    borderWidth: 1, 
-    borderColor: colors.border, 
-    backgroundColor: colors.surface,
-    gap: spacing.xs,
-  },
-  categoryChipActive: { backgroundColor: colors.primary, borderColor: colors.primary },
-  categoryText: { fontSize: fontSize.sm, color: colors.text.secondary, fontWeight: '500' },
-  categoryTextActive: { color: colors.surface, fontWeight: '600' },
+  container: { flex: 1 },
+  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingVertical: 16, borderBottomWidth: 1 },
+  backButton: { padding: 4 },
+  headerTitle: { fontSize: 18, fontWeight: '700' },
+  headerSpacer: { width: 32 },
+  scrollContent: { padding: 20, paddingBottom: 40 },
+  form: { gap: 20 },
+  label: { fontSize: 14, fontWeight: '600', marginBottom: 8 },
+  categoriesContainer: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 8 },
+  categoryChip: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 10, borderRadius: 20, borderWidth: 1, gap: 6 },
+  categoryText: { fontSize: 13 },
+  locationContainer: { flexDirection: 'row', gap: 12, alignItems: 'flex-start' },
+  gpsButton: { width: 52, height: 52, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+  buttonContainer: { marginTop: 16 },
   
-  // Novos estilos para localização GPS
-  locationContainer: {
-    flexDirection: 'row',
-    gap: spacing.sm,
-    alignItems: 'flex-start',
-  },
-  locationInputWrapper: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: colors.background,
-    borderRadius: borderRadius.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-    paddingHorizontal: spacing.md,
-  },
-  inputIcon: {
-    marginRight: spacing.sm,
-  },
-  locationInput: {
-    flex: 1,
-    paddingVertical: spacing.md,
-  },
-  gpsButton: {
-    width: 48,
-    height: 48,
-    borderRadius: borderRadius.md,
-    backgroundColor: colors.primary,
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  gpsButtonDisabled: {
-    backgroundColor: colors.text.light,
-  },
-  locationHint: {
-    fontSize: fontSize.xs,
-    color: colors.text.secondary,
-    marginTop: spacing.xs,
-    fontStyle: 'italic',
-  },
-  
-  buttonContainer: { marginTop: spacing.lg, marginBottom: spacing.xl },
+  recurringSection: { padding: 16, borderRadius: 16, borderWidth: 1, gap: 16 },
+  recurringHeader: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  recurringTitle: { fontSize: 16, fontWeight: '700' },
+  recurringSubtitle: { fontSize: 13, marginTop: 4 },
+  recurringOptions: { borderTopWidth: 1, borderTopColor: 'rgba(0,0,0,0.05)', paddingTop: 16 },
+  freqRow: { flexDirection: 'row', gap: 10 },
+  freqChip: { flex: 1, alignItems: 'center', paddingVertical: 10, borderRadius: 12, borderWidth: 1 },
+  freqText: { fontSize: 13, fontWeight: '600' },
+  dateButton: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 14, borderRadius: 12, borderWidth: 1 },
+  dateText: { fontSize: 15, flex: 1 },
+  calendarContainer: { marginTop: 8 },
 });

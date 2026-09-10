@@ -1,156 +1,113 @@
+// components/ui/Input.tsx
 import React, { useState } from 'react';
-import { View, TextInput, Text, StyleSheet, TouchableOpacity, ViewStyle } from 'react-native';
+import { View, Text, TextInput, StyleSheet, TouchableOpacity, TextInputProps } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { colors, fontSize, spacing, borderRadius, fontWeight } from '../../styles/theme';
+import { useTheme } from '../../styles/theme';
 
-interface InputProps {
+interface InputProps extends TextInputProps {
   label?: string;
-  placeholder?: string;
-  value: string;
-  onChangeText: (text: string) => void;
-  secureTextEntry?: boolean;
-  keyboardType?: 'default' | 'email-address' | 'numeric' | 'phone-pad';
-  autoCapitalize?: 'none' | 'sentences' | 'words' | 'characters';
   error?: string;
   icon?: keyof typeof Ionicons.glyphMap;
-  multiline?: boolean;
-  numberOfLines?: number;
-  editable?: boolean;
-  style?: ViewStyle;
+  rightIcon?: keyof typeof Ionicons.glyphMap;
+  onRightIconPress?: () => void;
 }
 
 export const Input: React.FC<InputProps> = ({
   label,
-  placeholder,
-  value,
-  onChangeText,
-  secureTextEntry = false,
-  keyboardType = 'default',
-  autoCapitalize = 'none',
   error,
   icon,
-  multiline = false,
-  numberOfLines = 1,
-  editable = true,
+  rightIcon,
+  onRightIconPress,
   style,
+  ...rest
 }) => {
+  // 1. Usar o hook do tema para obter as variáveis dinâmicas
+  const { colors, spacing, fontSize, borderRadius, fontWeight } = useTheme();
   const [isFocused, setIsFocused] = useState(false);
-  const [showPassword, setShowPassword] = useState(false);
-
-  const handleTogglePassword = () => {
-    setShowPassword(!showPassword);
-  };
 
   return (
-    <View style={[styles.container, style]}>
-      {label && <Text style={styles.label}>{label}</Text>}
+    <View style={[styles.container, { marginBottom: spacing.md }]}>
+      {label && (
+        <Text style={[styles.label, { color: colors.text.secondary, fontSize: fontSize.sm, fontWeight: fontWeight.semibold as any, marginBottom: spacing.xs }]}>
+          {label}
+        </Text>
+      )}
       
-      <View style={[
-        styles.inputContainer,
-        isFocused && styles.inputFocused,
-        error && styles.inputError,
-        !editable && styles.inputDisabled,
-      ]}>
+      <View 
+        style={[
+          styles.inputWrapper, 
+          { 
+            backgroundColor: colors.surface, 
+            borderColor: error ? colors.error : (isFocused ? colors.primary : colors.border),
+            borderRadius: borderRadius.md,
+            borderWidth: 1.5,
+          }
+        ]}
+      >
         {icon && (
           <Ionicons 
             name={icon} 
             size={20} 
-            color={isFocused ? colors.primary : colors.text.secondary} 
-            style={styles.icon}
+            color={isFocused ? colors.primary : colors.text.light} 
+            style={styles.leftIcon} 
           />
         )}
         
         <TextInput
           style={[
-            styles.input,
-            multiline && styles.multiline,
+            styles.input, 
+            { 
+              color: colors.text.primary, 
+              fontSize: fontSize.md,
+              paddingLeft: icon ? 0 : spacing.md,
+              paddingRight: rightIcon ? 0 : spacing.md,
+            }, 
+            style
           ]}
-          placeholder={placeholder}
           placeholderTextColor={colors.text.light}
-          value={value}
-          onChangeText={onChangeText}
-          secureTextEntry={secureTextEntry && !showPassword}
-          keyboardType={keyboardType}
-          autoCapitalize={autoCapitalize}
           onFocus={() => setIsFocused(true)}
           onBlur={() => setIsFocused(false)}
-          multiline={multiline}
-          numberOfLines={numberOfLines}
-          editable={editable}
-          textAlignVertical={multiline ? 'top' : 'center'}
+          {...rest}
         />
         
-        {secureTextEntry && (
-          <TouchableOpacity onPress={handleTogglePassword} style={styles.passwordToggle}>
-            <Ionicons 
-              name={showPassword ? 'eye-off' : 'eye'} 
-              size={20} 
-              color={colors.text.secondary} 
-            />
+        {rightIcon && (
+          <TouchableOpacity 
+            onPress={onRightIconPress} 
+            style={styles.rightIconContainer}
+            activeOpacity={0.7}
+          >
+            <Ionicons name={rightIcon} size={20} color={colors.text.light} />
           </TouchableOpacity>
         )}
       </View>
       
-      {error && <Text style={styles.errorText}>{error}</Text>}
+      {error && (
+        <Text style={[styles.errorText, { color: colors.error, fontSize: fontSize.sm, marginTop: spacing.xs }]}>
+          {error}
+        </Text>
+      )}
     </View>
   );
 };
 
+// Estilos estáticos apenas para propriedades que NÃO mudam com o tema
 const styles = StyleSheet.create({
-  container: {
-    marginBottom: spacing.md,
-  },
-  label: {
-    fontSize: fontSize.sm,
-    fontWeight: fontWeight.medium as any,
-    color: colors.text.primary,
-    marginBottom: spacing.xs,
-  },
-  inputContainer: {
+  container: {},
+  label: {},
+  inputWrapper: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: colors.surface,
-    borderRadius: borderRadius.md,
-    borderWidth: 1.5,
-    borderColor: colors.border,
-    paddingHorizontal: spacing.md,
-    minHeight: 52,
   },
-  inputFocused: {
-    borderColor: colors.primary,
-    shadowColor: colors.primary,
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 2,
-  },
-  inputError: {
-    borderColor: colors.error,
-  },
-  inputDisabled: {
-    backgroundColor: colors.surfaceDark,
-    opacity: 0.6,
-  },
-  icon: {
-    marginRight: spacing.sm,
+  leftIcon: {
+    marginLeft: 16,
+    marginRight: 12,
   },
   input: {
     flex: 1,
-    fontSize: fontSize.md,
-    color: colors.text.primary,
-    paddingVertical: spacing.md,
+    height: 56,
   },
-  multiline: {
-    minHeight: 100,
-    textAlignVertical: 'top',
+  rightIconContainer: {
+    padding: 16,
   },
-  passwordToggle: {
-    padding: spacing.xs,
-  },
-  errorText: {
-    fontSize: fontSize.xs,
-    color: colors.error,
-    marginTop: spacing.xs,
-    marginLeft: spacing.xs,
-  },
+  errorText: {},
 });

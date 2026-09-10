@@ -55,6 +55,9 @@ export interface Task {
   recurrence_end_date: string | null;
   parent_task_id: string | null;
   updated_at: string;
+  recurrence_interval?: 'daily' | 'weekly' | 'monthly' | null;
+  end_date?: string | null;
+  next_occurrence_date?: string | null;
 }
 export interface Notification {
   id: string;

@@ -2,7 +2,7 @@
 import React, { useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { colors, fontSize, spacing, borderRadius } from '../../styles/theme';
+import { useTheme } from '../../styles/theme';
 
 interface CalendarProps {
   selectedDate: string;
@@ -11,23 +11,17 @@ interface CalendarProps {
 }
 
 export const Calendar: React.FC<CalendarProps> = ({ selectedDate, onDateSelect, minDate }) => {
+  // 1. Hook de Tema Dinâmico
+  const { colors, spacing, borderRadius, fontSize } = useTheme();
   const [currentMonth, setCurrentMonth] = useState(new Date());
 
-  const daysInMonth = (date: Date) => {
-    return new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate();
-  };
+  const daysInMonth = (date: Date) => new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate();
+  const firstDayOfMonth = (date: Date) => new Date(date.getFullYear(), date.getMonth(), 1).getDay();
+  
+  const formatDate = (year: number, month: number, day: number) => 
+    `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
 
-  const firstDayOfMonth = (date: Date) => {
-    return new Date(date.getFullYear(), date.getMonth(), 1).getDay();
-  };
-
-  const formatDate = (year: number, month: number, day: number) => {
-    return `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-  };
-
-  const isDateBefore = (date1: string, date2: string) => {
-    return new Date(date1) < new Date(date2);
-  };
+  const isDateBefore = (date1: string, date2: string) => new Date(date1) < new Date(date2);
 
   const handlePrevMonth = () => {
     const newDate = new Date(currentMonth);
@@ -43,9 +37,7 @@ export const Calendar: React.FC<CalendarProps> = ({ selectedDate, onDateSelect, 
 
   const handleDatePress = (day: number) => {
     const dateStr = formatDate(currentMonth.getFullYear(), currentMonth.getMonth(), day);
-    if (minDate && isDateBefore(dateStr, minDate)) {
-      return; // Não permite selecionar datas antes do mínimo
-    }
+    if (minDate && isDateBefore(dateStr, minDate)) return;
     onDateSelect(dateStr);
   };
 
@@ -53,69 +45,70 @@ export const Calendar: React.FC<CalendarProps> = ({ selectedDate, onDateSelect, 
     const days = [];
     const totalDays = daysInMonth(currentMonth);
     const firstDay = firstDayOfMonth(currentMonth);
+    const todayStr = new Date().toISOString().split('T')[0];
 
-    // Dias vazios antes do primeiro dia do mês
     for (let i = 0; i < firstDay; i++) {
       days.push(<View key={`empty-${i}`} style={styles.dayCell} />);
     }
 
-    // Dias do mês
     for (let day = 1; day <= totalDays; day++) {
       const dateStr = formatDate(currentMonth.getFullYear(), currentMonth.getMonth(), day);
       const isSelected = dateStr === selectedDate;
-     const isDisabled = minDate ? isDateBefore(dateStr, minDate) : false;
-      const isToday = dateStr === new Date().toISOString().split('T')[0];
+      const isDisabled = minDate ? isDateBefore(dateStr, minDate) : false;
+      const isToday = dateStr === todayStr;
 
       days.push(
         <TouchableOpacity
           key={day}
+          activeOpacity={0.7}
           style={[
             styles.dayCell,
-            isSelected && styles.selectedDay,
-            isToday && !isSelected && styles.today,
-            isDisabled && styles.disabledDay,
+            { borderRadius: borderRadius.full }, // Círculo perfeito
+            isSelected && { backgroundColor: colors.primary, shadowColor: colors.primary, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 8, elevation: 4 },
+            isToday && !isSelected && { backgroundColor: colors.surfaceLight },
+            isDisabled && { opacity: 0.3 },
           ]}
           onPress={() => !isDisabled && handleDatePress(day)}
           disabled={isDisabled}
         >
           <Text style={[
             styles.dayText,
-            isSelected && styles.selectedDayText,
-            isDisabled && styles.disabledDayText,
+            { color: colors.text.primary, fontSize: fontSize.sm },
+            isSelected && { color: '#FFFFFF', fontWeight: '700' }, // Sempre branco no selecionado para contraste
+            isToday && !isSelected && { color: colors.primary, fontWeight: '700' },
+            isDisabled && { color: colors.text.light },
           ]}>
             {day}
           </Text>
         </TouchableOpacity>
       );
     }
-
     return days;
   };
 
-  const monthNames = [
-    'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
-    'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'
-  ];
+  const monthNames = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
 
   return (
-    <View style={styles.container}>
-      {/* Header do Calendário */}
+    <View style={[styles.container, { backgroundColor: colors.surface, borderRadius: borderRadius.lg, padding: spacing.md, borderWidth: 1, borderColor: colors.border }]}>
+      {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={handlePrevMonth} style={styles.navButton}>
-          <Ionicons name="chevron-back" size={24} color={colors.primary} />
+        <TouchableOpacity onPress={handlePrevMonth} style={styles.navButton} activeOpacity={0.6}>
+          <Ionicons name="chevron-back" size={24} color={colors.text.primary} />
         </TouchableOpacity>
-        <Text style={styles.monthText}>
+        <Text style={[styles.monthText, { color: colors.text.primary, fontSize: fontSize.lg }]}>
           {monthNames[currentMonth.getMonth()]} {currentMonth.getFullYear()}
         </Text>
-        <TouchableOpacity onPress={handleNextMonth} style={styles.navButton}>
-          <Ionicons name="chevron-forward" size={24} color={colors.primary} />
+        <TouchableOpacity onPress={handleNextMonth} style={styles.navButton} activeOpacity={0.6}>
+          <Ionicons name="chevron-forward" size={24} color={colors.text.primary} />
         </TouchableOpacity>
       </View>
 
       {/* Dias da Semana */}
       <View style={styles.weekDays}>
         {['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'].map((day) => (
-          <Text key={day} style={styles.weekDayText}>{day}</Text>
+          <Text key={day} style={[styles.weekDayText, { color: colors.text.secondary, fontSize: fontSize.xs }]}>
+            {day}
+          </Text>
         ))}
       </View>
 
@@ -127,38 +120,38 @@ export const Calendar: React.FC<CalendarProps> = ({ selectedDate, onDateSelect, 
   );
 };
 
+// Apenas estilos estruturais (layout) que não mudam com o tema
 const styles = StyleSheet.create({
   container: {
-    backgroundColor: colors.surface,
-    borderRadius: borderRadius.lg,
-    padding: spacing.md,
-    borderWidth: 1,
-    borderColor: colors.border,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 2,
   },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: spacing.md,
+    marginBottom: 16,
   },
   navButton: {
-    padding: spacing.xs,
+    padding: 8,
+    borderRadius: 20,
   },
   monthText: {
-    fontSize: fontSize.lg,
     fontWeight: '700',
-    color: colors.text.primary,
+    letterSpacing: 0.5,
   },
   weekDays: {
     flexDirection: 'row',
-    marginBottom: spacing.sm,
+    marginBottom: 8,
   },
   weekDayText: {
     flex: 1,
     textAlign: 'center',
-    fontSize: fontSize.xs,
     fontWeight: '600',
-    color: colors.text.secondary,
+    textTransform: 'uppercase',
   },
   daysGrid: {
     flexDirection: 'row',
@@ -169,28 +162,9 @@ const styles = StyleSheet.create({
     aspectRatio: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    borderRadius: borderRadius.md,
+    marginVertical: 2,
   },
   dayText: {
-    fontSize: fontSize.sm,
-    color: colors.text.primary,
     fontWeight: '500',
-  },
-  selectedDay: {
-    backgroundColor: colors.primary,
-  },
-  selectedDayText: {
-    color: colors.surface,
-    fontWeight: '700',
-  },
-  today: {
-    borderWidth: 2,
-    borderColor: colors.primary,
-  },
-  disabledDay: {
-    opacity: 0.3,
-  },
-  disabledDayText: {
-    color: colors.text.light,
   },
 });

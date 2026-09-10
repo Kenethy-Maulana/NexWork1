@@ -1,165 +1,192 @@
 // app/review.tsx
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, SafeAreaView, ScrollView, TouchableOpacity, Alert } from 'react-native';
+import { View, Text, StyleSheet, SafeAreaView, ScrollView, TouchableOpacity, Alert, ActivityIndicator } from 'react-native'; // ✅ ActivityIndicator adicionado
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { colors, fontSize, spacing, borderRadius } from '../styles/theme';
+import { useTheme } from '../styles/theme';
 import { Input } from '../components/ui/Input';
 import { Button } from '../components/ui/Button';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase, Task } from '../lib/supabase';
 import { PaySuiteService, WalletService } from '../lib/paysuite';
-import { NotificationService } from '../lib/notifications'; // <-- ADICIONADO
+import { NotificationService } from '../lib/notifications';
 
 export default function ReviewScreen() {
   const router = useRouter();
   const { taskId, reviewedId, reviewedName } = useLocalSearchParams();
   const { user } = useAuth();
+  const { colors } = useTheme();
   
   const [task, setTask] = useState<Task | null>(null);
   const [rating, setRating] = useState(0);
   const [comment, setComment] = useState('');
   const [loading, setLoading] = useState(false);
 
-  useEffect(() => {
-    if (taskId) {
-      fetchTaskDetails();
-    }
+  useEffect(() => { 
+    if (taskId) fetchTaskDetails(); 
   }, [taskId]);
 
   const fetchTaskDetails = async () => {
-    const { data, error } = await supabase.from('tasks').select('*').eq('id', taskId).single();
-    if (error) {
-      alert('Tarefa não encontrada');
-      router.replace('/(tabs)');
-    } else {
-      setTask(data);
+    const { data, error } = await supabase
+      .from('tasks')
+      .select('*, client_id, is_recurring, recurrence_interval, end_date')
+      .eq('id', taskId)
+      .single();
+      
+    if (error) { 
+      Alert.alert('Erro', 'Tarefa não encontrada'); 
+      router.replace('/(tabs)'); 
+    } else { 
+      setTask(data); 
     }
   };
 
   const handleSubmitReview = async () => {
-    if (rating === 0) {
-      alert('Por favor, selecione uma avaliação (estrelas).');
-      return;
+    if (rating === 0) { 
+      Alert.alert('Atenção', 'Por favor, selecione uma avaliação (estrelas).'); 
+      return; 
     }
-
-    if (!user || !task) {
-      alert('Erro: Utilizador ou tarefa não encontrados.');
-      return;
+    if (!user || !task) { 
+      Alert.alert('Erro', 'Utilizador ou tarefa não encontrados.'); 
+      return; 
     }
 
     setLoading(true);
-
-    // 1. Salvar a avaliação
-    const { error } = await supabase.from('reviews').insert({
-      task_id: taskId,
-      reviewer_id: user.id,
-      reviewed_id: reviewedId,
-      rating,
+    
+    const { error: reviewError } = await supabase.from('reviews').insert({
+      task_id: taskId, 
+      reviewer_id: user.id, 
+      reviewed_id: reviewedId, 
+      rating, 
       comment: comment.trim() || null,
     });
 
-    if (error) {
-      console.error('❌ Erro ao enviar avaliação:', error);
-      alert('Não foi possível enviar: ' + error.message);
+    if (reviewError) {
+      Alert.alert('Erro', 'Não foi possível enviar: ' + reviewError.message);
       setLoading(false);
     } else {
-      console.log('✅ Avaliação enviada com sucesso. A verificar Escrow...');
-      
-      // 2. Verificar se existe dinheiro bloqueado (Escrow) para esta tarefa
-      const { data: escrow, error: escrowError } = await supabase
+      const { data: escrow } = await supabase
         .from('escrow_payments')
         .select('*')
         .eq('task_id', taskId)
         .eq('status', 'held')
         .single();
 
-      if (escrowError || !escrow) {
-        console.log('ℹ️ Nenhum Escrow encontrado para esta tarefa (tarefa sem pagamento bloqueado).');
-      } else {
-        console.log('💰 Escrow encontrado! Valor: ', escrow.amount, 'A liberar fundos para o trabalhador ID:', escrow.worker_id);
+      if (escrow) {
         try {
-          // 3. Simular liberação no PaySuite
           await PaySuiteService.releaseEscrow(escrow.id);
-          console.log('🔓 PaySuite: Escrow liberado.');
+          await supabase.from('escrow_payments').update({ 
+            status: 'released', 
+            released_at: new Date().toISOString() 
+          }).eq('id', escrow.id);
           
-          // 4. Atualizar status no banco de dados
-          await supabase
-            .from('escrow_payments')
-            .update({ status: 'released', released_at: new Date().toISOString() })
-            .eq('id', escrow.id);
-          console.log('🗄️ Banco de dados: Status do Escrow atualizado para "released".');
-
-          // 5. Creditar o dinheiro na carteira do trabalhador
           await WalletService.creditWallet(
-            escrow.worker_id,
-            escrow.amount,
+            escrow.worker_id, 
+            escrow.amount, 
             `Pagamento liberado: ${task.title}`
           );
-          console.log('💵 Carteira: Fundos creditados com sucesso na carteira do trabalhador!');
           
-          // 🔔 NOTIFICAÇÃO: Avisar a outra parte que foi avaliada
           await NotificationService.createNotification(
-            reviewedId as string,
-            'task_approved',
+            reviewedId as string, 
+            'task_approved', 
             'Nova Avaliação Recebida! ⭐',
-            `Recebeste uma nova avaliação no NexWork. O teu Trust Score foi atualizado!`,
-            String(taskId),
+            `Recebeste uma nova avaliação no NexWork. O teu Trust Score foi atualizado!`, 
+            String(taskId), 
             'task'
           );
-          
-        } catch (err) {
-          console.error('❌ Erro crítico ao liberar escrow:', err);
+
+          // ✅ LÓGICA DE RESET PARA TAREFAS RECORRENTES
+          if (task.is_recurring && task.recurrence_interval && task.end_date) {
+            const today = new Date();
+            const endDate = new Date(task.end_date);
+            
+            if (today < endDate) {
+              const nextDate = new Date(today);
+              
+              if (task.recurrence_interval === 'daily') {
+                nextDate.setDate(today.getDate() + 1);
+              } else if (task.recurrence_interval === 'weekly') {
+                nextDate.setDate(today.getDate() + 7);
+              } else if (task.recurrence_interval === 'monthly') {
+                nextDate.setMonth(today.getMonth() + 1);
+              }
+
+              if (nextDate <= endDate) {
+                const nextDateStr = nextDate.toISOString().split('T')[0];
+
+                await supabase.from('tasks').update({
+                  status: 'open',
+                  next_occurrence_date: nextDateStr
+                }).eq('id', task.id);
+
+                await NotificationService.createNotification(
+                  task.client_id,
+                  'escrow_reminder', // ✅ Agora o TypeScript aceita isto
+                  '💰 Lembrete de Tarefa Recorrente',
+                  `A sua tarefa "${task.title}" está agendada para ocorrer novamente em ${nextDate.toLocaleDateString('pt-MZ')}. Por favor, reabasteça o Escrow.`,
+                  task.id,
+                  'task'
+                );
+              }
+            }
+          }
+
+        } catch (err) { 
+          console.error('Erro crítico ao processar pagamento/recorrência:', err); 
         }
       }
 
-      alert('✅ Avaliação enviada com sucesso! O Trust Score foi atualizado e o pagamento foi liberado.');
-      router.replace('/(tabs)');
+      Alert.alert(
+        'Sucesso! 🎉', 
+        'Avaliação enviada e pagamento liberado com sucesso.',
+        [{ text: 'OK', onPress: () => router.replace('/(tabs)') }],
+        { cancelable: false }
+      );
+      setLoading(false);
     }
   };
 
   if (!task) {
     return (
-      <SafeAreaView style={styles.loadingContainer}>
-        <Text>Carregando...</Text>
+      <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
+        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+          <ActivityIndicator size="large" color={colors.primary} />
+          <Text style={{ color: colors.text.secondary, marginTop: 16 }}>Carregando...</Text>
+        </View>
       </SafeAreaView>
     );
   }
 
   return (
-    <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
+      <View style={[styles.header, { backgroundColor: colors.surface, borderBottomColor: colors.border }]}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
           <Ionicons name="arrow-back" size={24} color={colors.text.primary} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Avaliar</Text>
+        <Text style={[styles.headerTitle, { color: colors.text.primary }]}>Avaliar</Text>
         <View style={styles.headerSpacer} />
       </View>
 
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         <View style={styles.form}>
-          <Text style={styles.introText}>
-            Como foi sua experiência com <Text style={styles.reviewedName}>{reviewedName}</Text> na tarefa "{task.title}"?
+          <Text style={[styles.introText, { color: colors.text.secondary }]}>
+            Como foi sua experiência com <Text style={[styles.reviewedName, { color: colors.primary }]}>{reviewedName}</Text> na tarefa "{task.title}"?
           </Text>
 
-          <Text style={styles.label}>Sua Avaliação</Text>
+          <Text style={[styles.label, { color: colors.text.primary }]}>Sua Avaliação</Text>
           <View style={styles.starsContainer}>
             {[1, 2, 3, 4, 5].map((star) => (
-              <TouchableOpacity
-                key={star}
-                onPress={() => setRating(star)}
-                style={styles.starButton}
-              >
+              <TouchableOpacity key={star} onPress={() => setRating(star)} style={styles.starButton} activeOpacity={0.7}>
                 <Ionicons
                   name={star <= rating ? 'star' : 'star-outline'}
-                  size={40}
-                  color={star <= rating ? '#FFD700' : colors.text.secondary}
+                  size={44}
+                  color={star <= rating ? colors.warning : colors.text.light}
                 />
               </TouchableOpacity>
             ))}
           </View>
 
-          <Text style={styles.ratingText}>
+          <Text style={[styles.ratingText, { color: colors.text.secondary }]}>
             {rating === 0 && 'Selecione uma avaliação'}
             {rating === 1 && 'Muito ruim'}
             {rating === 2 && 'Ruim'}
@@ -179,14 +206,7 @@ export default function ReviewScreen() {
           />
 
           <View style={styles.buttonContainer}>
-            <Button
-              title="Enviar Avaliação"
-              onPress={handleSubmitReview}
-              variant="primary"
-              size="large"
-              fullWidth
-              loading={loading}
-            />
+            <Button title="Enviar Avaliação" onPress={handleSubmitReview} variant="primary" size="large" fullWidth loading={loading} />
           </View>
         </View>
       </ScrollView>
@@ -195,19 +215,18 @@ export default function ReviewScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.background },
-  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: spacing.lg, paddingVertical: spacing.md, backgroundColor: colors.surface, borderBottomWidth: 1, borderBottomColor: colors.border },
-  backButton: { padding: spacing.xs },
-  headerTitle: { fontSize: fontSize.lg, fontWeight: '700', color: colors.text.primary },
-  headerSpacer: { width: 40 },
-  scrollContent: { padding: spacing.lg, paddingBottom: spacing.xxl },
-  form: { gap: spacing.lg },
-  introText: { fontSize: fontSize.md, color: colors.text.secondary, lineHeight: 24, marginBottom: spacing.sm },
-  reviewedName: { fontWeight: '700', color: colors.primary },
-  label: { fontSize: fontSize.sm, fontWeight: '600', color: colors.text.primary, marginBottom: spacing.xs },
-  starsContainer: { flexDirection: 'row', justifyContent: 'center', gap: spacing.md, marginBottom: spacing.md },
-  starButton: { padding: spacing.xs },
-  ratingText: { fontSize: fontSize.md, color: colors.text.secondary, textAlign: 'center', marginBottom: spacing.lg, fontWeight: '600' },
-  buttonContainer: { marginTop: spacing.md },
+  container: { flex: 1 },
+  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingVertical: 16, borderBottomWidth: 1 },
+  backButton: { padding: 4 },
+  headerTitle: { fontSize: 18, fontWeight: '700' },
+  headerSpacer: { width: 32 },
+  scrollContent: { padding: 24, paddingBottom: 40 },
+  form: { gap: 24 },
+  introText: { fontSize: 16, lineHeight: 24, textAlign: 'center' },
+  reviewedName: { fontWeight: '700' },
+  label: { fontSize: 14, fontWeight: '600', marginBottom: 8 },
+  starsContainer: { flexDirection: 'row', justifyContent: 'center', gap: 8, marginVertical: 8 },
+  starButton: { padding: 4 },
+  ratingText: { fontSize: 16, textAlign: 'center', fontWeight: '600', height: 24 },
+  buttonContainer: { marginTop: 16 },
 });

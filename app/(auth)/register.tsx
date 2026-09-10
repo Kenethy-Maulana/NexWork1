@@ -3,52 +3,41 @@ import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, SafeAreaView, ScrollView, TouchableOpacity, Alert } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { colors, fontSize, spacing, borderRadius } from '../../styles/theme';
+import { useTheme } from '../../styles/theme';
 import { Input } from '../../components/ui/Input';
 import { Button } from '../../components/ui/Button';
+import { SuccessModal } from '../../components/ui/SuccessModal'; // ✅ ADICIONADO
 import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../lib/supabase';
 
 export default function RegisterScreen() {
   const router = useRouter();
   const { signUp, user } = useAuth();
+  const { colors, spacing, borderRadius, fontSize } = useTheme();
+  
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [showSuccess, setShowSuccess] = useState(false); // ✅ ADICIONADO
 
-  // Se o usuário já estiver logado (após redirect do Google), redireciona para o dashboard
   useEffect(() => {
     if (user) {
-      console.log("✅ [REGISTER] Usuário já logado, redirecionando...");
       router.replace('/(tabs)');
     }
   }, [user]);
 
   const handleGoogleAuth = async () => {
-    console.log("🚀 [GOOGLE] Iniciando fluxo OAuth do Supabase...");
     setLoading(true);
-    
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: {
-        redirectTo: typeof window !== 'undefined' 
-          ? window.location.origin 
-          : 'http://localhost:8081',
-        queryParams: {
-          access_type: 'offline',
-          prompt: 'consent',
-        },
+        redirectTo: typeof window !== 'undefined' ? window.location.origin : 'http://localhost:8081',
+        queryParams: { access_type: 'offline', prompt: 'consent' },
       },
     });
-    
     setLoading(false);
-
-    if (error) {
-      console.error("❌ [GOOGLE] Erro OAuth:", error);
-      Alert.alert('Erro', 'Falha ao conectar com o Google: ' + error.message);
-    }
-    // Se não houver erro, o navegador será redirecionado para o Google automaticamente
+    if (error) Alert.alert('Erro', 'Falha ao conectar com o Google: ' + error.message);
   };
 
   const handleRegister = async () => {
@@ -57,7 +46,7 @@ export default function RegisterScreen() {
       return;
     }
     if (password.length < 6) {
-      Alert.alert('Erro', 'A senha deve ter pelo menos 6 caracteres.');
+      Alert.alert('Erro', 'A palavra-passe deve ter pelo menos 6 caracteres.');
       return;
     }
 
@@ -68,71 +57,74 @@ export default function RegisterScreen() {
     if (error) {
       Alert.alert('Erro no cadastro', error.message);
     } else {
-      Alert.alert('Sucesso!', 'Conta criada com sucesso. Redirecionando...');
-      router.replace('/(tabs)');
+      setShowSuccess(true); // ✅ SUBSTITUIU O ALERT
     }
   };
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        <View style={styles.content}>
+        <View style={[styles.content, { paddingHorizontal: spacing.xl, paddingTop: spacing.xl }]}>
           <View style={styles.header}>
-            <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
+            <TouchableOpacity style={[styles.backButton, { backgroundColor: colors.surface, shadowColor: colors.text.primary }]} onPress={() => router.back()}>
               <Ionicons name="arrow-back" size={24} color={colors.text.primary} />
             </TouchableOpacity>
-            <Text style={styles.title}>Criar Conta</Text>
-            <Text style={styles.subtitle}>Junte-se ao NexWork e comece a trabalhar</Text>
+            <Text style={[styles.title, { color: colors.text.primary }]}>Criar Conta</Text>
+            <Text style={[styles.subtitle, { color: colors.text.secondary }]}>Junte-se ao NexWork e comece a trabalhar</Text>
           </View>
 
           <View style={styles.form}>
             <Input label="Nome Completo" placeholder="Seu nome" value={name} onChangeText={setName} icon="person-outline" />
             <Input label="E-mail" placeholder="seu@email.com" value={email} onChangeText={setEmail} icon="mail-outline" keyboardType="email-address" />
-            <Input label="Senha" placeholder="Mínimo 6 caracteres" value={password} onChangeText={setPassword} secureTextEntry icon="lock-closed-outline" />
+            <Input label="Palavra-passe" placeholder="Mínimo 6 caracteres" value={password} onChangeText={setPassword} secureTextEntry icon="lock-closed-outline" />
             
             <Button title="Cadastrar" onPress={handleRegister} variant="primary" size="large" fullWidth loading={loading} />
             
             <View style={styles.divider}>
-              <View style={styles.dividerLine} />
-              <Text style={styles.dividerText}>ou continue com</Text>
-              <View style={styles.dividerLine} />
+              <View style={[styles.dividerLine, { backgroundColor: colors.border }]} />
+              <Text style={[styles.dividerText, { color: colors.text.secondary }]}>ou continue com</Text>
+              <View style={[styles.dividerLine, { backgroundColor: colors.border }]} />
             </View>
 
-            <Button 
-              title="Cadastrar com Google" 
-              onPress={handleGoogleAuth} 
-              variant="outline" 
-              size="large" 
-              fullWidth 
-              loading={loading}
-            />
+            <Button title="Cadastrar com Google" onPress={handleGoogleAuth} variant="outline" size="large" fullWidth loading={loading} icon={<Ionicons name="logo-google" size={20} color={colors.primary} />} />
           </View>
 
           <View style={styles.footer}>
-            <Text style={styles.footerText}>Já tem uma conta? </Text>
+            <Text style={[styles.footerText, { color: colors.text.secondary }]}>Já tem uma conta? </Text>
             <TouchableOpacity onPress={() => router.push('/(auth)/login')}>
-              <Text style={styles.footerLink}>Faça Login</Text>
+              <Text style={[styles.footerLink, { color: colors.primary }]}>Faça Login</Text>
             </TouchableOpacity>
           </View>
         </View>
       </ScrollView>
+
+      {/* ✅ MODAL DE SUCESSO */}
+      <SuccessModal 
+        visible={showSuccess} 
+        title="Conta Criada! 🎉" 
+        message="Bem-vindo ao NexWork. A tua conta foi criada com sucesso e já podes começar a explorar." 
+        onClose={() => {
+          setShowSuccess(false);
+          router.replace('/(tabs)');
+        }} 
+      />
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.background },
+  container: { flex: 1 },
   scrollContent: { flexGrow: 1 },
-  content: { flex: 1, paddingHorizontal: spacing.xl, paddingTop: spacing.xl, justifyContent: 'center' },
-  header: { marginBottom: spacing.xxl },
-  backButton: { width: 40, height: 40, borderRadius: borderRadius.full, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center', marginBottom: spacing.lg, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 4, elevation: 2 },
-  title: { fontSize: fontSize.xxxl, fontWeight: '700', color: colors.text.primary, marginBottom: spacing.sm },
-  subtitle: { fontSize: fontSize.md, color: colors.text.secondary, lineHeight: 24 },
-  form: { gap: spacing.md },
-  divider: { flexDirection: 'row', alignItems: 'center', marginVertical: spacing.md },
-  dividerLine: { flex: 1, height: 1, backgroundColor: colors.border },
-  dividerText: { color: colors.text.secondary, marginHorizontal: spacing.md, fontSize: fontSize.sm },
-  footer: { flexDirection: 'row', justifyContent: 'center', marginTop: spacing.xxl, paddingBottom: spacing.xl },
-  footerText: { fontSize: fontSize.sm, color: colors.text.secondary },
-  footerLink: { fontSize: fontSize.sm, color: colors.primary, fontWeight: '600' }
+  content: { flex: 1, justifyContent: 'center' },
+  header: { marginBottom: 32 },
+  backButton: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', marginBottom: 24, shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 4, elevation: 2 },
+  title: { fontSize: 32, fontWeight: '800', marginBottom: 8, letterSpacing: -1 },
+  subtitle: { fontSize: 16, lineHeight: 24 },
+  form: { gap: 16 },
+  divider: { flexDirection: 'row', alignItems: 'center', marginVertical: 8 },
+  dividerLine: { flex: 1, height: 1 },
+  dividerText: { marginHorizontal: 16, fontSize: 14 },
+  footer: { flexDirection: 'row', justifyContent: 'center', marginTop: 32, paddingBottom: 32 },
+  footerText: { fontSize: 15 },
+  footerLink: { fontSize: 15, fontWeight: '700' }
 });
