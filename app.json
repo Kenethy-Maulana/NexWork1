@@ -11,7 +11,7 @@
     "assetBundlePatterns": ["**/*"],
     "android": {
       "package": "com.kenethy.nexwork",
-      "versionCode": 2,
+      "versionCode": 3,
       "adaptiveIcon": {
         "backgroundColor": "#0F172A"
       }
